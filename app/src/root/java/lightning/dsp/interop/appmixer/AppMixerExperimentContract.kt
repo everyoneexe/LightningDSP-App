@@ -237,6 +237,8 @@ internal object AppMixerControlProtocol {
 internal class AppMixerPlaybackBufferTuner(private val minimumFrames: Int) {
     private var previousUnderruns: Int? = null
     private var lastUnderrunNanos: Long? = null
+    private var probingSmallerBuffer = false
+    private var smallerBufferFailed = false
     // getMinBufferSize sizes construction capacity, not a mandatory effective floor.
     // Let AudioTrack clamp the request; retain the recommendation for underrun recovery.
     private var target = AppMixerLatencyPolicy.TARGET_PLAYBACK_BUFFER_FRAMES
@@ -247,13 +249,16 @@ internal class AppMixerPlaybackBufferTuner(private val minimumFrames: Int) {
         require(capacity > 0 && underruns >= 0)
         val previous = previousUnderruns
         if (previous != null && underruns > previous) {
+            if (probingSmallerBuffer) smallerBufferFailed = true
+            probingSmallerBuffer = false
             target = maxOf(minimumFrames, AppMixerLatencyPolicy.MAX_PLAYBACK_BUFFER_FRAMES)
             lastUnderrunNanos = nowNanos
-        } else if (lastUnderrunNanos?.let { nowNanos - it >= 30_000_000_000L } == true) {
-            // Once stable, release emergency headroom. Keep the platform's
-            // conservative recommendation rather than repeatedly probing the
-            // smaller startup queue and causing recurring underruns.
+        } else if (!smallerBufferFailed &&
+            lastUnderrunNanos?.let { nowNanos - it >= 30_000_000_000L } == true) {
+            // Probe the low-latency queue once after stability. A renewed underrun
+            // means this relay needs headroom; do not oscillate every 30 seconds.
             target = maxOf(minimumFrames, AppMixerLatencyPolicy.TARGET_PLAYBACK_BUFFER_FRAMES)
+            probingSmallerBuffer = true
             lastUnderrunNanos = null
         }
         // A counter reset can occur when AudioTrack restores itself; keep the safe

@@ -50,7 +50,7 @@ class AppMixerExperimentContractTest {
         // resurrect the obsolete Bluetooth recommendation.
         assertEquals(960, tuner.targetFrames(32768, 0, 31_000_000_000))
         assertEquals(3840, tuner.targetFrames(32768, 1, 32_000_000_000))
-        assertEquals(960, tuner.targetFrames(32768, 1, 62_000_000_000))
+        assertEquals(3840, tuner.targetFrames(32768, 1, 62_000_000_000))
     }
 
     @Test fun emergencyHeadroomIsReleasedOnlyAfterSustainedStability() {
@@ -64,6 +64,23 @@ class AppMixerExperimentContractTest {
         assertEquals(2886, tuner.targetFrames(3840, 2, 100_000_000_000))
         // A later real underrun restores headroom immediately.
         assertEquals(3840, tuner.targetFrames(3840, 3, 100_000_000_001))
+        assertEquals(3840, tuner.targetFrames(3840, 3, 140_000_000_000))
+    }
+
+    @Test fun failedDownshiftProbeKeepsBoundedHeadroomForThisRelay() {
+        val tuner = AppMixerPlaybackBufferTuner(960)
+        assertEquals(960, tuner.targetFrames(3840, 126, 0))
+        assertEquals(3840, tuner.targetFrames(3840, 170, 1_000_000_000))
+        assertEquals(960, tuner.targetFrames(3840, 170, 32_000_000_000))
+        assertEquals(3840, tuner.targetFrames(3840, 214, 33_000_000_000))
+        assertEquals(3840, tuner.targetFrames(3840, 214, 70_000_000_000))
+        assertEquals(3840, tuner.targetFrames(3840, 214, 160_000_000_000))
+    }
+
+    @Test fun healthyRelayKeepsLowLatencyBufferWithoutAnyIncrease() {
+        val tuner = AppMixerPlaybackBufferTuner(960)
+        assertEquals(960, tuner.targetFrames(3840, 0, 0))
+        assertEquals(960, tuner.targetFrames(3840, 0, 120_000_000_000))
     }
 
     @Test fun audioSchedulingFailureDoesNotPreventRelayFallback() {
