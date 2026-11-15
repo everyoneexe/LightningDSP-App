@@ -61,6 +61,11 @@ object LightningVolumeOverlay {
         panel?.takeIf { it.isAttachedToWindow }?.let {
             it.animate().cancel()
             dismissalGeneration++
+            if (!setPanelTouchable(it, true)) {
+                if (!isDismissing) beginDismissal(explicit = true)
+                finishDismissal(it, windowManager, dismissalGeneration)
+                return
+            }
             it.alpha = 1f
             isDismissing = false
             LightningDspVolumeManager.reportOverlayAvailable()
@@ -187,6 +192,10 @@ object LightningVolumeOverlay {
         val generation = ++dismissalGeneration
         isDismissing = true
         current.animate().cancel()
+        if (!setPanelTouchable(current, false)) {
+            finishDismissal(current, manager, generation)
+            return
+        }
         current.animate().alpha(0f).setDuration(FADE_OUT_DURATION_MS).withEndAction {
             finishDismissal(current, manager, generation)
         }.start()
@@ -216,10 +225,22 @@ object LightningVolumeOverlay {
         if (active && isDismissing && idle.mayResumeOnInteraction()) {
             host.animate().cancel()
             dismissalGeneration++
+            if (!setPanelTouchable(host, true)) {
+                finishDismissal(host, windowManager, dismissalGeneration)
+                return
+            }
             host.alpha = 1f
             isDismissing = false
         }
         scheduleDismiss(host)
+    }
+
+    private fun setPanelTouchable(host: FrameLayout, touchable: Boolean): Boolean {
+        val manager = windowManager ?: return false
+        val params = host.layoutParams as? WindowManager.LayoutParams ?: return false
+        val flag = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        params.flags = if (touchable) params.flags and flag.inv() else params.flags or flag
+        return runCatching { manager.updateViewLayout(host, params) }.isSuccess
     }
 
     private fun scheduleDismiss(expected: FrameLayout? = panel) {
