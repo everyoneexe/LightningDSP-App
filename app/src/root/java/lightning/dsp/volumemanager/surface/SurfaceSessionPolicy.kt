@@ -13,6 +13,10 @@ internal object SurfaceSessionPolicy {
         displayId >= 0 && width in 1..MAX_DIMENSION && height in 1..MAX_DIMENSION &&
             width.toLong() * height <= MAX_PIXELS && generation > 0L
 
+    fun validRelayout(width: Int, height: Int, maxWidth: Int, maxHeight: Int): Boolean =
+        width in 1..maxWidth && height in 1..maxHeight &&
+            width.toLong() * height <= MAX_PIXELS
+
     fun current(ownerMatches: Boolean, expectedGeneration: Long, generation: Long): Boolean =
         ownerMatches && generation > 0L && expectedGeneration == generation
 

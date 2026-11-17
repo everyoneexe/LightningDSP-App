@@ -78,6 +78,8 @@ public final class SystemUiVolumeSurfaceHost {
     private long lastBindAttempt;
     private long lastInteraction;
     private volatile int appUid = -1;
+    private int viewportWidth;
+    private int viewportHeight;
 
     private SystemUiVolumeSurfaceHost(Context context) {
         this.context = context.getApplicationContext();
@@ -266,6 +268,8 @@ public final class SystemUiVolumeSurfaceHost {
             int margin = Math.max(1, Math.round(16f * metrics.density));
             int width = Math.min(Math.round(420f * metrics.density), Math.max(1, metrics.widthPixels - 2 * margin));
             int height = Math.min(Math.round(600f * metrics.density), Math.max(1, metrics.heightPixels - 4 * margin));
+            viewportWidth = width;
+            viewportHeight = height;
             layout = new WindowManager.LayoutParams(width, height, type,
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL |
@@ -320,7 +324,7 @@ public final class SystemUiVolumeSurfaceHost {
             requestSurface();
         }
         @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-            if (!attaching) requestSurface();
+            if (!attaching && !ready) requestSurface();
         }
         @Override public void surfaceDestroyed(SurfaceHolder holder) {
             if (surface == null) return; // releaseWindow already invalidated this holder.
@@ -342,7 +346,7 @@ public final class SystemUiVolumeSurfaceHost {
         try {
             attaching = true;
             int displayId = surface.getDisplay().getDisplayId();
-            service.attach(owner, hostToken, displayId, layout.width, layout.height,
+            service.attach(owner, hostToken, displayId, viewportWidth, viewportHeight,
                     generation, renderingLocked, callback);
         } catch (Throwable ignored) { fail(); }
     }
@@ -382,6 +386,20 @@ public final class SystemUiVolumeSurfaceHost {
                 if (resultGeneration != generation) return;
                 remoteInteracting = active;
                 SystemUiVolumeSurfaceHost.this.interaction();
+            });
+        }
+        @Override public void surfaceSizeChanged(long resultGeneration, int width, int height) {
+            if (!trusted()) return;
+            main.post(() -> {
+                if (resultGeneration != generation || window == null || surface == null || service == null ||
+                        !SurfaceSessionPolicy.INSTANCE.validRelayout(width, height, viewportWidth, viewportHeight)) return;
+                if (layout.width == width && layout.height == height) return;
+                try {
+                    layout.width = width;
+                    layout.height = height;
+                    windows.updateViewLayout(window, layout);
+                    service.relayout(owner, generation, width, height);
+                } catch (Throwable error) { warn("surface resize", error); fail(); }
             });
         }
     };

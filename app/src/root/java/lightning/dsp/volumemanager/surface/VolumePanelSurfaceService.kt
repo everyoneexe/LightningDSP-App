@@ -8,7 +8,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ApplicationInfo
 import android.hardware.display.DisplayManager
-import android.media.AudioManager
 import android.os.Binder
 import android.os.Build
 import android.os.Handler
@@ -24,26 +23,15 @@ import android.view.ContextThemeWrapper
 import android.view.SurfaceControlViewHost
 import android.widget.FrameLayout
 import androidx.annotation.RequiresApi
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
-import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleRegistry
@@ -58,6 +46,7 @@ import lightning.dsp.volumemanager.backend.LightningDspVolumeManager
 import lightning.dsp.volumemanager.backend.SystemUiVolumePanelOption
 import lightning.dsp.volumemanager.backend.VolumeManagerState
 import lightning.dsp.volumemanager.ui.LightningVolumeFloatingPanel
+import lightning.dsp.volumemanager.ui.LightningVolumeLockedPanel
 import lightning.dsp.volumemanager.ui.VolumeOverlayIdlePolicy
 import kotlin.math.roundToInt
 import timber.log.Timber
@@ -119,6 +108,20 @@ class VolumePanelSurfaceService : Service() {
                 }
                 current.lastHeartbeat = SystemClock.uptimeMillis()
                 VolumePanelSurfaceClient.markReady(owner, generation, true, current.locked)
+            }
+        }
+
+        override fun relayout(owner: IBinder?, generation: Long, width: Int, height: Int) {
+            if (!trustedCaller() || owner == null) return
+            main.post {
+                val current = session ?: return@post
+                if (!SurfaceSessionPolicy.current(current.owner == owner, current.generation, generation) ||
+                    !SurfaceSessionPolicy.validRelayout(width, height, current.maxWidth, current.maxHeight)) return@post
+                if (current.width == width && current.height == height) return@post
+                current.width = width
+                current.height = height
+                runCatching { current.surfaceHost?.relayout(width, height) }
+                    .onFailure { close(current, notify = true) }
             }
         }
 
@@ -224,11 +227,15 @@ class VolumePanelSurfaceService : Service() {
                 setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
                 setContent {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        if (current.locked) LockedStreamPanel(panelContext, current.streamRevision)
+                        if (current.locked) LightningVolumeLockedPanel(current.streamRevision) { width, height ->
+                            runCatching { callback.surfaceSizeChanged(generation, width, height) }
+                        }
                         else LightningVolumeFloatingPanel(current.state, onClose = {
                             runCatching { callback.dismiss(generation) }
                         }, onPanelFocusChanged = {
                             current.interaction(VolumeOverlayIdlePolicy.Interaction.FOCUS, it)
+                        }, onSizeChanged = { width, height ->
+                            runCatching { callback.surfaceSizeChanged(generation, width, height) }
                         })
                     }
                 }
@@ -266,6 +273,10 @@ class VolumePanelSurfaceService : Service() {
             }.also {
                 main.postDelayed(it, FIRST_DRAW_TIMEOUT_MILLIS)
             }
+            current.maxWidth = width
+            current.maxHeight = height
+            current.width = width
+            current.height = height
             surfaceHost.setView(root, width, height)
             current.lifecycleRegistry.currentState = Lifecycle.State.RESUMED
             if (!current.locked) {
@@ -322,6 +333,10 @@ class VolumePanelSurfaceService : Service() {
         override val savedStateRegistry: SavedStateRegistry get() = savedState.savedStateRegistry
         var lastHeartbeat = SystemClock.uptimeMillis()
         var surfaceHost: SurfaceControlViewHost? = null
+        var maxWidth = 0
+        var maxHeight = 0
+        var width = 0
+        var height = 0
         var state by mutableStateOf(if (locked) VolumeManagerState()
             else LightningDspVolumeManager.state.value ?: VolumeManagerState())
         var streamRevision by mutableStateOf(0L)
@@ -349,28 +364,5 @@ class VolumePanelSurfaceService : Service() {
         private const val PRIVACY_CHECK_MILLIS = 250L
         private const val FIRST_DRAW_TIMEOUT_MILLIS = 1_500L
         private const val VOLUME_CHANGED_ACTION = "android.media.VOLUME_CHANGED_ACTION"
-    }
-}
-
-/** No application identity, media metadata, navigation or DSP controls may enter this branch. */
-@Composable
-private fun LockedStreamPanel(context: Context, revision: Long) {
-    val audio = context.getSystemService(AudioManager::class.java)
-    MaterialTheme {
-        Surface {
-            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Volume", style = MaterialTheme.typography.titleMedium)
-                listOf(AudioManager.STREAM_MUSIC to "Media", AudioManager.STREAM_RING to "Ring",
-                    AudioManager.STREAM_ALARM to "Alarm").forEach { (stream, label) ->
-                    val maximum = audio.getStreamMaxVolume(stream).coerceAtLeast(1)
-                    var value by remember(stream, revision) { mutableStateOf(audio.getStreamVolume(stream).toFloat()) }
-                    Text(label)
-                    Slider(value = value, valueRange = 0f..maximum.toFloat(), onValueChange = {
-                        value = it
-                        LightningDspVolumeManager.setSystemStreamVolume(stream, it.roundToInt())
-                    })
-                }
-            }
-        }
     }
 }

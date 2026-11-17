@@ -23,6 +23,15 @@ class SurfaceSessionPolicyTest {
         assertFalse(SurfaceSessionPolicy.validRequest(0, Int.MAX_VALUE, Int.MAX_VALUE, 1))
     }
 
+    @Test fun panelRelayoutCannotEscapeItsOriginalViewport() {
+        assertTrue(SurfaceSessionPolicy.validRelayout(980, 720, 1260, 1800))
+        assertTrue(SurfaceSessionPolicy.validRelayout(1260, 1800, 1260, 1800))
+        assertFalse(SurfaceSessionPolicy.validRelayout(0, 720, 1260, 1800))
+        assertFalse(SurfaceSessionPolicy.validRelayout(1261, 720, 1260, 1800))
+        assertFalse(SurfaceSessionPolicy.validRelayout(980, 1801, 1260, 1800))
+        assertFalse(SurfaceSessionPolicy.validRelayout(4096, 4096, 4096, 4096))
+    }
+
     @Test fun staleOwnersGenerationsAndClockValuesAreRejected() {
         assertTrue(SurfaceSessionPolicy.current(true, 2, 2))
         assertFalse(SurfaceSessionPolicy.current(false, 2, 2))
@@ -65,9 +74,15 @@ class SurfaceSessionPolicyTest {
         assertTrue(service.contains("idle.remainingMillis(SystemClock.uptimeMillis()) == null"))
         assertTrue(service.contains("callback.interaction(generation, engaged)"))
         assertTrue(service.contains("VolumePanelSurfaceClient.clear(current.owner, current.generation)"))
-        val locked = service.substringAfter("private fun LockedStreamPanel")
-        assertTrue(locked.contains("STREAM_MUSIC"))
-        assertTrue(locked.contains("STREAM_RING"))
+        assertTrue(service.contains("LightningVolumeLockedPanel(current.streamRevision)"))
+        assertTrue(service.contains("callback.surfaceSizeChanged(generation, width, height)"))
+        assertTrue(service.contains("SurfaceSessionPolicy.validRelayout(width, height, current.maxWidth, current.maxHeight)"))
+        val ui = File(app, "src/root/java/lightning/dsp/volumemanager/ui/LightningVolumeComposeUi.kt").readText()
+        val locked = ui.substringAfter("internal fun LightningVolumeLockedPanel").substringBefore("private const val FLOATING_HIDDEN_PREFIX")
+        assertTrue(locked.contains("AudioManager.STREAM_MUSIC"))
+        assertTrue(locked.contains("AudioManager.STREAM_RING"))
+        assertTrue(locked.contains("AudioManager.STREAM_ALARM"))
+        assertFalse(locked.contains("AudioManager.STREAM_VOICE_CALL"))
         assertFalse(locked.contains("LightningVolumeFloatingPanel"))
         assertFalse(locked.contains("VolumeManagerState"))
         assertFalse(locked.contains("startActivity"))

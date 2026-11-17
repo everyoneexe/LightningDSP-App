@@ -5,4 +5,5 @@ oneway interface IVolumePanelSurfaceCallback {
     void surfaceFailed(long generation);
     void dismiss(long generation);
     void interaction(long generation, boolean active);
+    void surfaceSizeChanged(long generation, int width, int height);
 }
