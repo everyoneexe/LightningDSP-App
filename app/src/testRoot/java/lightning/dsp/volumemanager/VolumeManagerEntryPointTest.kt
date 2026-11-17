@@ -79,12 +79,15 @@ class VolumeManagerEntryPointTest {
         val manager = source("root/java/lightning/dsp/volumemanager/backend/LightningDspVolumeManager.kt")
         val settings = manager.substringAfter("private fun sendSettings()")
             .substringBefore("private fun publish(")
-        assertTrue(settings.contains(".put(\"panel_enabled\", isEnabled && Settings.canDrawOverlays(context))"))
+        assertTrue(settings.contains("systemUiPanelOptedIn || Settings.canDrawOverlays(context)"))
+        assertTrue(settings.contains("VolumePanelSurfaceClient.readyUntil(context)"))
+        assertTrue(settings.contains("isEnabled && systemUiPanelOptedIn && surfaceReadyUntil > 0"))
         assertFalse(settings.contains("isEnabled && overlayReady"))
 
         val showReply = manager.substringAfter("if (response.optBoolean(\"show_panel\"))")
             .substringBefore("if (response.has(\"volume_operation_result\"))")
-        assertTrue(showReply.contains("if (isEnabled && Settings.canDrawOverlays(context)) LightningVolumeOverlay.show(context)"))
+        assertTrue(showReply.contains("VolumePanelSurfaceClient.show(context)"))
+        assertTrue(showReply.contains("else if (Settings.canDrawOverlays(context)) LightningVolumeOverlay.show(context)"))
         assertFalse(showReply.contains("overlayReady"))
 
         val accessibility = source("root/java/lightning/dsp/volumemanager/ui/LightningVolumeAccessibilityService.kt")

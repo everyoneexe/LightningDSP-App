@@ -1,6 +1,7 @@
 package lightning.dsp.volumemanager.surface;
 
 import android.app.KeyguardManager;
+import android.annotation.SuppressLint;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -24,9 +25,12 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import androidx.annotation.RequiresApi;
 import de.robv.android.xposed.XposedBridge;
 
 /** A SystemUI-owned volume window; app-owned views are embedded, never executed in SystemUI. */
+@RequiresApi(api = Build.VERSION_CODES.R)
+@SuppressLint({"UnspecifiedRegisterReceiverFlag", "StaticFieldLeak"}) // API 26-32 uses the legacy permission-protected receiver; the host is a process-lifetime SystemUI singleton.
 public final class SystemUiVolumeSurfaceHost {
     public static final String PREPARE = "com.lightning.dsp.action.VOLUME_SURFACE_PREPARE";
     public static final String SHOW = "com.lightning.dsp.action.VOLUME_SURFACE_SHOW";
@@ -118,6 +122,7 @@ public final class SystemUiVolumeSurfaceHost {
         });
     }
 
+    @SuppressLint("MissingPermission") // Runs under SystemUI's UID, which owns the keyguard-lock listener permission.
     private void register() {
         IntentFilter commands = new IntentFilter();
         commands.addAction(PREPARE);

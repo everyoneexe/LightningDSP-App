@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import lightning.dsp.volumemanager.surface.VolumePanelSurfaceClient
 import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.ApplicationInfo
@@ -104,7 +105,11 @@ object LightningDspVolumeManager {
     }
     private val panelPreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == SHOW_MEDIA_CONTROLS_KEY || key == null) worker.execute { configureMediaControls() }
-        if (key == SystemUiVolumePanelOption.KEY || key == null) worker.execute { sendSettings() }
+        if (key == SystemUiVolumePanelOption.KEY || key == null) worker.execute {
+            if (SystemUiVolumePanelOption.requested(context)) VolumePanelSurfaceClient.prepare(context)
+            else VolumePanelSurfaceClient.hide(context)
+            sendSettings()
+        }
         if (key == null || key.startsWith(SESSION_DSP_ENABLED_PREFIX) || key == "process_work_profile_audio")
             worker.execute { publish(force = true) }
     }
@@ -120,6 +125,10 @@ object LightningDspVolumeManager {
     @Volatile private var overlayReady = false
     val isOverlayReady: Boolean get() = overlayReady
     private var overlayError: String? = null
+
+    fun onSurfaceReadinessChanged() {
+        if (::panelPreferences.isInitialized) worker.execute { sendSettings() }
+    }
 
     fun reportOverlayUnavailable(reason: String) {
         worker.execute {
@@ -281,6 +290,7 @@ object LightningDspVolumeManager {
         preferences = this.context.getSharedPreferences("lightningdsp_volume_manager", Context.MODE_PRIVATE)
         panelPreferences = this.context.getSharedPreferences("lightningdsp_volume_panel", Context.MODE_PRIVATE)
         panelPreferences.registerOnSharedPreferenceChangeListener(panelPreferenceListener)
+        VolumePanelSurfaceClient.prepare(this.context)
         mediaSessionManager = this.context.getSystemService(MediaSessionManager::class.java)
         writeProfileSettings(VolumeProfiles.initialize(preferences.all))
         cleanupUncertain = preferences.getBoolean("cleanup_uncertain", false)
@@ -708,7 +718,10 @@ object LightningDspVolumeManager {
                                         return@execute
                                     }
                                     if (response.optBoolean("show_panel")) {
-                                        if (isEnabled && Settings.canDrawOverlays(context)) LightningVolumeOverlay.show(context)
+                                        if (isEnabled) {
+                                            if (SystemUiVolumePanelOption.requested(context)) VolumePanelSurfaceClient.show(context)
+                                            else if (Settings.canDrawOverlays(context)) LightningVolumeOverlay.show(context)
+                                        }
                                         return@execute
                                     }
                                     if (response.has("volume_operation_result")) {
@@ -901,10 +914,11 @@ object LightningDspVolumeManager {
                 preferences.getBoolean("ignore_buttons:${identityKey(it)}", false)
         }.forEach { ignored.put(it.packageName) }
         val systemUiPanelOptedIn = SystemUiVolumePanelOption.requested(context)
-        val rules = JSONObject().put("activate", output.sideEffectsAuthorized).put("foreground_known", foregroundPackage != null).put("ignored_packages", ignored).put("panel_enabled", isEnabled && Settings.canDrawOverlays(context))
+        val surfaceReadyUntil = VolumePanelSurfaceClient.readyUntil(context)
+        val rules = JSONObject().put("activate", output.sideEffectsAuthorized).put("foreground_known", foregroundPackage != null).put("ignored_packages", ignored).put("panel_enabled", isEnabled && (systemUiPanelOptedIn || Settings.canDrawOverlays(context)))
             .put("systemui_panel_opted_in", systemUiPanelOptedIn)
-            .put("panel_overlay_ready", overlayReady ||
-                (overlayError == null && isEnabled && Settings.canDrawOverlays(context)))
+            .put("panel_overlay_ready", isEnabled && systemUiPanelOptedIn && surfaceReadyUntil > 0)
+            .put("panel_surface_ready_until", surfaceReadyUntil)
             .put("panel_bypass", foregroundPackage?.let { preferences.getBoolean("ignore_buttons:$it", false) } ?: false)
         applications.filter { application -> isEnabled && perAppEnabled && PlaybackVolumePolicy.canControl(uidCounts[application.uid] ?: 0) }.forEach { application ->
             val name = identityKey(application)

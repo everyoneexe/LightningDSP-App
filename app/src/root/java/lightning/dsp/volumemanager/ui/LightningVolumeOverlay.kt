@@ -53,6 +53,10 @@ object LightningVolumeOverlay {
             handler.post { show(context.applicationContext) }
             return
         }
+        if (lightning.dsp.volumemanager.backend.SystemUiVolumePanelOption.requested(context)) {
+            lightning.dsp.volumemanager.surface.VolumePanelSurfaceClient.show(context)
+            return
+        }
         if (!Settings.canDrawOverlays(context)) {
             hide()
             LightningDspVolumeManager.reportOverlayUnavailable("Floating panel permission is unavailable")

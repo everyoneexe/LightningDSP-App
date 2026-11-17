@@ -119,6 +119,7 @@ object LightningDspVolumeRoot {
         val panelActive = AtomicBoolean(false)
         val panelEnabled = AtomicBoolean(false)
         val panelOverlayReady = AtomicBoolean(false)
+        var panelSurfaceReadyUntil = 0L
         val panelOptedIn = AtomicBoolean(false)
         val panelControllerReady = AtomicBoolean(false)
         val panelEventChannelReady = AtomicBoolean(true)
@@ -185,10 +186,14 @@ object LightningDspVolumeRoot {
                         panelBypass.set(settings.optBoolean("panel_bypass"))
                         panelActive.set(settings.optBoolean("activate"))
                         panelEnabled.set(settings.optBoolean("panel_enabled"))
-                        panelOverlayReady.set(settings.optBoolean("panel_overlay_ready"))
+                        panelSurfaceReadyUntil = settings.optLong("panel_surface_ready_until", 0L)
                         panelOptedIn.set(settings.optBoolean("systemui_panel_opted_in"))
                     }
                 }
+                val surfaceNow = SystemClock.uptimeMillis()
+                panelOverlayReady.set(settings.optBoolean("panel_overlay_ready") &&
+                    surfaceNow > 0L && surfaceNow <= panelSurfaceReadyUntil &&
+                    panelSurfaceReadyUntil - surfaceNow <= VolumePanelSuppressionLease.TTL_MS)
                 // Registration can be replaced by SystemUI after startup. A stale object
                 // must not keep the independent SystemUI hook suppressing the stock panel.
                 panelControllerReady.set(runCatching { panelController?.ownsRegistration() == true }

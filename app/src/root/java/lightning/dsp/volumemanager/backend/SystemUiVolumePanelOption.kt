@@ -16,7 +16,7 @@ object SystemUiVolumePanelOption {
         .getBoolean(KEY, false)
 
     /** Root presence allows the generic IVolumeController path to serve unsupported SystemUI variants. */
-    fun canConfigure(): Boolean = RootShellImpl.hasRootShell()
+    fun canConfigure(): Boolean = android.os.Build.VERSION.SDK_INT >= 30 && RootShellImpl.hasRootShell()
 
     /** A PID match distinguishes an active SystemUI hook from installation or stale state. */
     fun available(): Boolean {
