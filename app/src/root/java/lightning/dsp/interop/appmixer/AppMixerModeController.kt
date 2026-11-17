@@ -29,6 +29,7 @@ internal class AppMixerModeController(
     private var selected = emptySet<Int>()
     private var selectedSystemSounds = true
     private var selectedUsers = setOf(android.os.Process.myUid() / 100000)
+    private var selectedWorkProfileIncluded = false
     private var disposed = false
     private var standbyLease: AutoCloseable? = null
     private var lastStatus: String? = null
@@ -37,7 +38,8 @@ internal class AppMixerModeController(
     }
     private val supervisor: AppMixerSupervisor = AppMixerSupervisor({ launcher.launch(selected, selectedSystemSounds, selectedUsers) }, acquireExclusive, effect::prepare,
         { modeAndPowerWanted() && inventory.readRoute(selectedSystemSounds)?.let {
-            it.userIds == selectedUsers && it.excludedUids == selected && it.includesSystemSounds == selectedSystemSounds
+            it.userIds == selectedUsers && it.excludedUids == selected &&
+                it.includesSystemSounds == selectedSystemSounds && it.workProfileIncluded == selectedWorkProfileIncluded
         } == true }) { clean ->
         runCatching {
             executor.execute {
@@ -74,6 +76,7 @@ internal class AppMixerModeController(
         val next = if (requested) route?.excludedUids else emptySet()
         val nextUsers = route?.userIds ?: setOf(android.os.Process.myUid() / 100000)
         val nextSystemSounds = route?.includesSystemSounds ?: requestedSystemSounds
+        val nextWorkProfileIncluded = route?.workProfileIncluded ?: false
         val systemSoundFallback = requested && requestedSystemSounds && route != null && !route.includesSystemSounds
         if (next == null || next.isEmpty()) {
             supervisor.close()
@@ -93,8 +96,9 @@ internal class AppMixerModeController(
             } else status("Fusion Mode off requested; cleanup may be pending.")
             return
         }
-        if (running && !renew && selected == next && selectedSystemSounds == nextSystemSounds && selectedUsers == nextUsers) {
-            if (systemSoundFallback) status("Fusion Mode is active, but system sounds are excluded because too many apps are turned off.")
+        if (running && !renew && selected == next && selectedSystemSounds == nextSystemSounds &&
+            selectedUsers == nextUsers && selectedWorkProfileIncluded == nextWorkProfileIncluded) {
+            status(activeStatus(systemSoundFallback, requested && panel.getBoolean("process_work_profile_audio", false) && !nextWorkProfileIncluded))
             return
         }
         if (running && !renew) {
@@ -102,9 +106,9 @@ internal class AppMixerModeController(
                 selected = next
                 selectedSystemSounds = nextSystemSounds
                 selectedUsers = nextUsers
-                status(if (systemSoundFallback)
-                    "Fusion Mode updated, but system sounds are excluded because too many apps are turned off."
-                else app.getString(R.string.notification_fusion_relay_working))
+                selectedWorkProfileIncluded = nextWorkProfileIncluded
+                status(activeStatus(systemSoundFallback, requested && panel.getBoolean("process_work_profile_audio", false) && !nextWorkProfileIncluded,
+                    updated = true))
             } else {
                 running = false
                 Timber.w("Fusion Mode rule update failed: %s", supervisor.lastFailureReason)
@@ -119,16 +123,31 @@ internal class AppMixerModeController(
         selected = next
         selectedSystemSounds = nextSystemSounds
         selectedUsers = nextUsers
+        selectedWorkProfileIncluded = nextWorkProfileIncluded
         if (requested) {
             running = supervisor.start()
             if (!running) {
                 val reason = supervisor.lastFailureReason ?: "an existing relay or exclusive owner is still active"
                 Timber.w("Fusion Mode startup failed: %s; original route is not claimed", reason)
                 status("Fusion Mode failed: $reason. Other DSP may remain fenced; check logs.")
-            } else status(if (systemSoundFallback)
-                "Fusion Mode started, but system sounds are excluded because too many apps are turned off."
-            else app.getString(R.string.notification_fusion_relay_working))
+            } else status(activeStatus(systemSoundFallback, requested && panel.getBoolean("process_work_profile_audio", false) && !nextWorkProfileIncluded,
+                started = true))
         }
+    }
+
+    private fun activeStatus(systemSoundFallback: Boolean, workProfileFallback: Boolean,
+        updated: Boolean = false, started: Boolean = false): String {
+        val prefix = when {
+            started -> "Fusion Mode started"
+            updated -> "Fusion Mode updated"
+            else -> "Fusion Mode is active"
+        }
+        val limitations = buildList {
+            if (workProfileFallback) add("work-profile audio is excluded because its app inventory is unavailable")
+            if (systemSoundFallback) add("system sounds are excluded because too many apps are turned off")
+        }
+        return if (limitations.isEmpty()) app.getString(R.string.notification_fusion_relay_working)
+        else "$prefix, but ${limitations.joinToString(" and ")}."
     }
 
     override fun close() {

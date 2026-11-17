@@ -29,7 +29,7 @@ class ProcessingNotificationTextContractTest {
 
     @Test fun fusionWorkingTextIsUsedOnlyAfterSuccessfulStartOrRuleUpdate() {
         val controller = source("src/root/java/lightning/dsp/interop/appmixer/AppMixerModeController.kt")
-        assertEquals(2, Regex("R.string.notification_fusion_relay_working").findAll(controller).count())
+        assertEquals(1, Regex("R.string.notification_fusion_relay_working").findAll(controller).count())
         assertTrue(controller.contains("running = supervisor.start()"))
         assertTrue(controller.contains("if (supervisor.updateRules(next, nextSystemSounds, nextUsers))"))
         assertTrue(controller.contains("Fusion Mode failed: $"))
