@@ -19,12 +19,16 @@ public final class SamsungVolumePanelHook implements IXposedHookLoadPackage {
         "com.android.systemui.volume.VolumeDialogControl"
     };
     private static final String LEASE_PROPERTY = "debug.lightningdsp.volume_panel_lease_ms";
+    private static final String ENABLED_PROPERTY = "debug.lightningdsp.suppress_volume_panel";
+    private static final String READY_PROPERTY = "debug.lightningdsp.volume_panel_hook_pid";
     private static final long LEASE_TTL_MS = 6_000L;
     private static final int FLAG_SHOW_UI = 1;
 
     private static boolean suppressionActive() {
         try {
             Class<?> properties = XposedHelpers.findClass("android.os.SystemProperties", null);
+            if (!(Boolean) XposedHelpers.callStaticMethod(properties, "getBoolean", ENABLED_PROPERTY, false))
+                return false;
             String value = (String) XposedHelpers.callStaticMethod(properties, "get", LEASE_PROPERTY, "0");
             long refreshedAt = Long.parseLong(value);
             long now = SystemClock.uptimeMillis();
@@ -60,6 +64,16 @@ public final class SamsungVolumePanelHook implements IXposedHookLoadPackage {
             }).size();
             if (hooks == 0) {
                 XposedBridge.log("LightningDSP Samsung volume panel: onVolumeChangedW not found; native behavior retained");
+                return;
+            }
+            // Only advertise readiness after a real hook was installed. The app compares
+            // this PID with the live SystemUI process before allowing the option to be enabled.
+            Class<?> properties = XposedHelpers.findClass("android.os.SystemProperties", null);
+            String pid = Integer.toString(Process.myPid());
+            XposedHelpers.callStaticMethod(properties, "set", READY_PROPERTY, pid);
+            String readyPid = (String) XposedHelpers.callStaticMethod(properties, "get", READY_PROPERTY, "");
+            if (!pid.equals(readyPid)) {
+                XposedBridge.log("LightningDSP Samsung volume panel: readiness property rejected; native behavior retained");
                 return;
             }
             if (DiagnosticMode.isEnabled()) XposedBridge.log("LightningDSP Samsung volume panel hook ready pid=" + Process.myPid() + " hooks=" + hooks);

@@ -7,13 +7,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VolumePanelSuppressionLeaseTest {
-    @Test fun suppressionRequiresLiveNonBypassedController() {
-        assertTrue(VolumePanelSuppressionLease.shouldSuppress(true, true, true, true, false))
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(false, true, true, true, false))
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, false, true, true, false))
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, false, true, false))
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, true, false, false))
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, true, true, true))
+    @Test fun suppressionRequiresExplicitOptInAndLiveSystemUiHook() {
+        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, true, true, false))
+        assertTrue(VolumePanelSuppressionLease.shouldSuppress(true, true, true, true, false, optedIn = true, hookReady = true))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, true, true, false, optedIn = false, hookReady = true))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, true, true, false, optedIn = true, hookReady = false))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppress(false, true, true, true, false, true, true))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, false, true, true, false, true, true))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, false, true, false, true, true))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, true, false, false, true, true))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, true, true, true, true, true))
     }
 
     @Test fun enabledLeaseUsesMonotonicRefreshTimestamp() {

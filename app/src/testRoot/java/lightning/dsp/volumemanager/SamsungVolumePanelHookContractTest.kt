@@ -16,14 +16,23 @@ class SamsungVolumePanelHookContractTest {
             "src/root/java/lightning/dsp/volumemanager/backend/VolumePanelSuppressionLease.kt").readText()
         val root = File(app,
             "src/root/java/lightning/dsp/volumemanager/backend/LightningDspVolumeRoot.kt").readText()
+        val option = File(app,
+            "src/root/java/lightning/dsp/volumemanager/backend/SystemUiVolumePanelOption.kt").readText()
         assertTrue(hook.contains("com.android.systemui.volume.VolumeDialogControllerImpl"))
         assertTrue(hook.contains("com.android.systemui.volume.VolumeDialogControl"))
+        assertTrue(hook.contains("!SYSTEM_UI.equals(info.packageName) || !\"samsung\".equalsIgnoreCase(Build.MANUFACTURER)"))
         assertTrue(hook.contains("hookAllMethods(control, \"onVolumeChangedW\""))
         assertTrue(hook.contains("if (!suppressionActive()"))
         assertTrue(hook.contains("param.args[1] = flags & ~FLAG_SHOW_UI"))
+        assertTrue(root.contains("Build.MANUFACTURER.equals(\"samsung\", ignoreCase = true)"))
         assertTrue(hook.contains("now - refreshedAt <= LEASE_TTL_MS"))
+        assertTrue(hook.contains("getBoolean\", ENABLED_PROPERTY, false"))
+        assertTrue(hook.contains("READY_PROPERTY"))
+        assertTrue(option.contains(".getBoolean(KEY, false)"))
+        assertTrue(option.contains("marker in systemUiPids"))
         assertTrue(lease.contains("uptimeMillis - refreshedAt <= TTL_MS"))
-        assertTrue(root.contains("settings.optBoolean(\"panel_enabled\")"))
+        assertTrue(root.contains("settings.optBoolean(\"systemui_panel_opted_in\")"))
+        assertTrue(root.contains("settings.optBoolean(\"systemui_hook_ready\")"))
         assertTrue(root.contains("VolumePanelSuppressionLease.PROPERTY, \"0\")"))
     }
 }

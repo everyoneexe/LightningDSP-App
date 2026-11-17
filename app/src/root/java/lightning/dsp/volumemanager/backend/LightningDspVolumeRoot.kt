@@ -175,7 +175,8 @@ object LightningDspVolumeRoot {
                 val shouldSuppressSamsungPanel = VolumePanelSuppressionLease.shouldSuppress(
                     uid == 0 && Build.MANUFACTURER.equals("samsung", ignoreCase = true),
                     settings.optBoolean("activate"), settings.optBoolean("panel_enabled"),
-                    panelController != null && panelError == null, panelBypass.get()
+                    panelController != null && panelError == null, panelBypass.get(),
+                    settings.optBoolean("systemui_panel_opted_in"), settings.optBoolean("systemui_hook_ready")
                 )
                 val panelLeaseNow = SystemClock.uptimeMillis()
                 if (!panelLeaseWritten || shouldSuppressSamsungPanel != panelLeaseEnabled ||

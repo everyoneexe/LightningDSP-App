@@ -102,6 +102,7 @@ object LightningDspVolumeManager {
     }
     private val panelPreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == SHOW_MEDIA_CONTROLS_KEY || key == null) worker.execute { configureMediaControls() }
+        if (key == SystemUiVolumePanelOption.KEY || key == null) worker.execute { sendSettings() }
         if (key == null || key.startsWith(SESSION_DSP_ENABLED_PREFIX)) worker.execute { publish(force = true) }
     }
     private var systemVolumeOperationId = 0L
@@ -844,7 +845,11 @@ object LightningDspVolumeManager {
         val output = session ?: return
         val ignored = org.json.JSONArray()
         applications.filter { preferences.getBoolean("ignore_buttons:${it.packageName}", false) }.forEach { ignored.put(it.packageName) }
+        val systemUiPanelOptedIn = SystemUiVolumePanelOption.requested(context)
+        val systemUiHookReady = systemUiPanelOptedIn && SystemUiVolumePanelOption.available()
         val rules = JSONObject().put("activate", output.sideEffectsAuthorized).put("foreground_known", foregroundPackage != null).put("ignored_packages", ignored).put("panel_enabled", isEnabled && Settings.canDrawOverlays(context))
+            .put("systemui_panel_opted_in", systemUiPanelOptedIn)
+            .put("systemui_hook_ready", systemUiHookReady)
             .put("panel_bypass", foregroundPackage?.let { preferences.getBoolean("ignore_buttons:$it", false) } ?: false)
         applications.filter { application -> isEnabled && perAppEnabled && PlaybackVolumePolicy.canControl(uidCounts[application.uid] ?: 0) }.forEach { application ->
             val name = application.packageName

@@ -20,4 +20,9 @@
     <string name="ldsp_vm_settings_dsp_card" tools:ignore="MissingTranslation">LightningDSP card</string>
     <string name="ldsp_vm_settings_floating_controls" tools:ignore="MissingTranslation">Floating panel controls</string>
     <string name="ldsp_vm_monochrome_dsp_bar" tools:ignore="MissingTranslation">Enable monochrome LightningDSP bar</string>
+    <string name="ldsp_vm_settings_systemui_panel" tools:ignore="MissingTranslation">SystemUI volume panel</string>
+    <string name="ldsp_vm_suppress_systemui_panel" tools:ignore="MissingTranslation">Use LightningDSP instead of Samsung’s stock volume panel</string>
+    <string name="ldsp_vm_systemui_panel_ready" tools:ignore="MissingTranslation">SystemUI hook is live in Vector/LSPosed. Suppression is temporary and only active while the root volume panel is ready.</string>
+    <string name="ldsp_vm_systemui_panel_unavailable" tools:ignore="MissingTranslation">Unavailable: enable LightningDSP in Vector/LSPosed with SystemUI scope, then restart SystemUI. Samsung devices only.</string>
+    <string name="ldsp_vm_systemui_panel_toggle_failed" tools:ignore="MissingTranslation">Could not verify the live SystemUI hook. Stock volume controls remain available.</string>
 </resources>

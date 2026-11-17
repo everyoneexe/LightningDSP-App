@@ -39,6 +39,7 @@ import lightning.dsp.activity.MainActivity
 import lightning.dsp.volumemanager.backend.LightningDspVolumeManager
 import lightning.dsp.MainApplication
 import lightning.dsp.volumemanager.backend.SHOW_MEDIA_CONTROLS_KEY
+import lightning.dsp.volumemanager.backend.SystemUiVolumePanelOption
 import lightning.dsp.volumemanager.focus.DisableAudioFocusOption
 import me.timschneeberger.rootlessjamesdsp.service.NotificationListenerService
 
@@ -361,6 +362,52 @@ class LightningDspVolumeManagerActivity : BaseActivity() {
                 audioFocusStatus.visibility = if (active) View.GONE else View.VISIBLE
             }
         }, "LDSP-audio-focus-check").start()
+        addSection(R.string.ldsp_vm_settings_systemui_panel)
+        var revertingSystemUiPanelSwitch = false
+        val systemUiPanelStatus = TextView(settingsContext).apply {
+            setText(R.string.ldsp_vm_systemui_panel_unavailable)
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+        }
+        val systemUiPanelSwitch = MaterialSwitch(settingsContext).apply {
+            setText(R.string.ldsp_vm_suppress_systemui_panel)
+            isChecked = SystemUiVolumePanelOption.requested(applicationContext)
+            setOnCheckedChangeListener { _, checked ->
+                if (revertingSystemUiPanelSwitch) return@setOnCheckedChangeListener
+                isEnabled = false
+                Thread({
+                    val success = SystemUiVolumePanelOption.set(applicationContext, checked)
+                    val available = success || SystemUiVolumePanelOption.available()
+                    runOnUiThread {
+                        if (!success) {
+                            revertingSystemUiPanelSwitch = true
+                            isChecked = SystemUiVolumePanelOption.requested(applicationContext)
+                            revertingSystemUiPanelSwitch = false
+                            Toast.makeText(this@LightningDspVolumeManagerActivity,
+                                R.string.ldsp_vm_systemui_panel_toggle_failed, Toast.LENGTH_LONG).show()
+                        }
+                        isEnabled = available || SystemUiVolumePanelOption.requested(applicationContext)
+                        systemUiPanelStatus.setText(if (available) R.string.ldsp_vm_systemui_panel_ready
+                            else R.string.ldsp_vm_systemui_panel_unavailable)
+                        systemUiPanelStatus.visibility = if (success && checked) View.GONE else View.VISIBLE
+                    }
+                }, "LDSP-systemui-panel-toggle").start()
+            }
+        }
+        controls.addView(systemUiPanelSwitch)
+        controls.addView(systemUiPanelStatus)
+        Thread({
+            val available = SystemUiVolumePanelOption.available()
+            val requested = SystemUiVolumePanelOption.requested(applicationContext)
+            runOnUiThread {
+                revertingSystemUiPanelSwitch = true
+                systemUiPanelSwitch.isChecked = requested
+                revertingSystemUiPanelSwitch = false
+                systemUiPanelSwitch.isEnabled = available || requested
+                systemUiPanelStatus.setText(if (available) R.string.ldsp_vm_systemui_panel_ready
+                    else R.string.ldsp_vm_systemui_panel_unavailable)
+                systemUiPanelStatus.visibility = if (available && requested) View.GONE else View.VISIBLE
+            }
+        }, "LDSP-systemui-panel-check").start()
         addSection(R.string.ldsp_vm_settings_app_list)
         controls.addView(MaterialSwitch(settingsContext).apply {
             setText(R.string.ldsp_vm_hide_system_apps)
