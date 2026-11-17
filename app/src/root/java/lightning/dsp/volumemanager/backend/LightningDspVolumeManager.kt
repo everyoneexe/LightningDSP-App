@@ -958,7 +958,7 @@ object LightningDspVolumeManager {
                     SessionDspControlPreferences.defaultEnabled()),
                 identityKey = name,
                 workProfile = workProfile,
-                workProfileDspAllowed = !workProfile || panelPreferences.getBoolean("process_work_profile_audio", false),
+                workProfileDspAllowed = !workProfile || panelPreferences.getBoolean("process_work_profile_audio", true),
                 dspToggleRetained = dspControlRowRetention.contains(name, now))
         }.sortedWith(compareByDescending<AppVolume> { it.active }.thenBy { it.label.lowercase() })
         val audio = context.getSystemService(AudioManager::class.java)

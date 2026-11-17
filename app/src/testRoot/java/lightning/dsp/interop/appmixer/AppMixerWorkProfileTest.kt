@@ -26,11 +26,11 @@ class AppMixerWorkProfileTest {
         }
     }
 
-    @Test fun profileRoutingIsOptInAndUpdatesTheExistingRelay() {
+    @Test fun profileRoutingDefaultsOnAndUpdatesTheExistingRelay() {
         val app = sequenceOf(File("."), File("app")).first { File(it, "src/root").isDirectory }
         fun source(name: String) = File(app, "src/root/java/lightning/dsp/interop/appmixer/$name.kt").readText()
         val inventory = source("AppMixerUidInventory")
-        assertTrue(inventory.contains("getBoolean(\"process_work_profile_audio\", false)"))
+        assertTrue(inventory.contains("getBoolean(\"process_work_profile_audio\", true)"))
         assertTrue(inventory.contains("launcher.profiles"))
         assertTrue(inventory.contains("SessionDspControlPreferences.preferenceKey"))
         assertTrue(source("AppMixerModeController").contains("supervisor.updateRules(next, nextSystemSounds, nextUsers)"))

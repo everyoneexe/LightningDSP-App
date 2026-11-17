@@ -98,7 +98,7 @@ internal class AppMixerModeController(
         }
         if (running && !renew && selected == next && selectedSystemSounds == nextSystemSounds &&
             selectedUsers == nextUsers && selectedWorkProfileIncluded == nextWorkProfileIncluded) {
-            status(activeStatus(systemSoundFallback, requested && panel.getBoolean("process_work_profile_audio", false) && !nextWorkProfileIncluded))
+            status(activeStatus(systemSoundFallback, requested && panel.getBoolean("process_work_profile_audio", true) && !nextWorkProfileIncluded))
             return
         }
         if (running && !renew) {
@@ -107,7 +107,7 @@ internal class AppMixerModeController(
                 selectedSystemSounds = nextSystemSounds
                 selectedUsers = nextUsers
                 selectedWorkProfileIncluded = nextWorkProfileIncluded
-                status(activeStatus(systemSoundFallback, requested && panel.getBoolean("process_work_profile_audio", false) && !nextWorkProfileIncluded,
+                status(activeStatus(systemSoundFallback, requested && panel.getBoolean("process_work_profile_audio", true) && !nextWorkProfileIncluded,
                     updated = true))
             } else {
                 running = false
@@ -130,7 +130,7 @@ internal class AppMixerModeController(
                 val reason = supervisor.lastFailureReason ?: "an existing relay or exclusive owner is still active"
                 Timber.w("Fusion Mode startup failed: %s; original route is not claimed", reason)
                 status("Fusion Mode failed: $reason. Other DSP may remain fenced; check logs.")
-            } else status(activeStatus(systemSoundFallback, requested && panel.getBoolean("process_work_profile_audio", false) && !nextWorkProfileIncluded,
+            } else status(activeStatus(systemSoundFallback, requested && panel.getBoolean("process_work_profile_audio", true) && !nextWorkProfileIncluded,
                 started = true))
         }
     }

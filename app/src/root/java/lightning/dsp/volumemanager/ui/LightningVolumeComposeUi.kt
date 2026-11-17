@@ -230,7 +230,6 @@ internal fun LightningVolumeManagerScreen(
     var showWorkProfileApps by remember {
         mutableStateOf(panelPrefs.getBoolean("show_work_profile_apps", WorkProfileVisibilityPolicy.DEFAULT_SHOW_WORK_APPS))
     }
-    var processWorkProfileAudio by remember { mutableStateOf(panelPrefs.getBoolean("process_work_profile_audio", false)) }
     var showSessionDspControls by remember { mutableStateOf(panelPrefs.getBoolean("show_session_dsp_controls", false)) }
     var alwaysShowSessionDspControls by remember { mutableStateOf(panelPrefs.getBoolean("always_show_session_dsp_controls", true)) }
     var appDspButtonsRevealed by rememberSaveable { mutableStateOf(false) }
@@ -253,7 +252,6 @@ internal fun LightningVolumeManagerScreen(
             if (key == SHOW_MEDIA_CONTROLS_KEY) showMediaControls = panelPrefs.getBoolean(SHOW_MEDIA_CONTROLS_KEY, false)
             if (key == "show_work_profile_apps") showWorkProfileApps = panelPrefs.getBoolean(
                 "show_work_profile_apps", WorkProfileVisibilityPolicy.DEFAULT_SHOW_WORK_APPS)
-            if (key == "process_work_profile_audio") processWorkProfileAudio = panelPrefs.getBoolean("process_work_profile_audio", false)
             if (key == "show_session_dsp_controls") showSessionDspControls = panelPrefs.getBoolean("show_session_dsp_controls", false)
             if (key == "always_show_session_dsp_controls") alwaysShowSessionDspControls = panelPrefs.getBoolean("always_show_session_dsp_controls", true)
             processingModes = (context.applicationContext as MainApplication).let { it.isGlobalMode to it.isAppMixerMode }
@@ -429,19 +427,6 @@ internal fun LightningVolumeManagerScreen(
                             Switch(checked = showWorkProfileApps, onCheckedChange = {
                                 panelPrefs.edit().putBoolean("show_work_profile_apps", it).apply()
                             })
-                        }
-                    }
-                    if (hasWorkProfileApps && !processingModes.first) item(key = "work_profile_processing") {
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 6.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Process work profile audio", Modifier.weight(1f),
-                                    style = MaterialTheme.typography.bodyMedium)
-                                Switch(checked = processWorkProfileAudio, onCheckedChange =
-                                    LightningDspVolumeManager::setProcessWorkProfileAudio)
-                            }
-                            Text("Off by default. Applies DSP to work-profile apps in Session and Fusion; per-app controls remain available.",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     if (state.enabled && !Settings.canDrawOverlays(context)) {

@@ -283,7 +283,7 @@ class RootSessionDatabase(context: Context) : BaseSessionDatabase(context) {
         val userId = SessionDspControlPreferences.userIdForUid(uid)
         val preferences = context.getSharedPreferences("lightningdsp_volume_panel", Context.MODE_PRIVATE)
         if (!SessionDspControlPreferences.workProfileAudioAllowed(
-                userId, currentUserId, preferences.getBoolean("process_work_profile_audio", false))) return false
+                userId, currentUserId, preferences.getBoolean("process_work_profile_audio", true))) return false
         return preferences.getBoolean(
             SessionDspControlPreferences.preferenceKey(packageName, userId, currentUserId),
             SessionDspControlPreferences.defaultEnabled())

@@ -38,7 +38,9 @@ internal class AppMixerUidInventory(private val context: Context) {
             // as the authority for which profiles are eligible, then query their complete package
             // membership through the already-authorized root shell. Do not infer shared UIDs from
             // launcher activities alone.
-            val optedInToWork = preferences.getBoolean("process_work_profile_audio", false)
+            // The route only includes work users when LauncherApps exposes work apps; using
+            // true as the absent-key default therefore enables work audio only when it exists.
+            val optedInToWork = preferences.getBoolean("process_work_profile_audio", true)
             val workInventory = if (optedInToWork && launcher != null) runCatching {
                 val userManager = context.getSystemService(UserManager::class.java)
                 val work = launcher.profiles.filter { profile ->

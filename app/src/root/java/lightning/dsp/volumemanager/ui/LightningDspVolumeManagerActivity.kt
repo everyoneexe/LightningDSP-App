@@ -2,6 +2,7 @@ package lightning.dsp.volumemanager.ui
 
 import android.content.Intent
 import android.content.ComponentName
+import android.content.pm.LauncherApps
 import android.net.Uri
 import android.os.Bundle
 import android.os.Process
@@ -229,6 +230,27 @@ class LightningDspVolumeManagerActivity : BaseActivity() {
             setOnCheckedChangeListener { _, checked -> LightningDspVolumeManager.setStartupOnBoot(checked) }
         })
         addSection(R.string.ldsp_vm_settings_app_controls)
+        val launcherApps = getSystemService(LauncherApps::class.java)
+        val currentUserId = Process.myUid() / 100000
+        val hasWorkProfile = runCatching {
+            launcherApps?.let { launcher -> launcher.profiles.any { profile ->
+                launcher.getActivityList(null, profile).any { it.applicationInfo.uid / 100000 != currentUserId }
+            } } ?: false
+        }.getOrDefault(false)
+        if (hasWorkProfile) {
+            controls.addView(MaterialSwitch(settingsContext).apply {
+                setText(R.string.ldsp_vm_process_work_profile_audio)
+                isChecked = preferences.getBoolean(
+                    "process_work_profile_audio", WorkProfileVisibilityPolicy.DEFAULT_PROCESS_WORK_PROFILE_AUDIO)
+                setOnCheckedChangeListener { _, checked ->
+                    LightningDspVolumeManager.setProcessWorkProfileAudio(checked)
+                }
+            })
+            controls.addView(TextView(settingsContext).apply {
+                setText(R.string.ldsp_vm_process_work_profile_audio_summary)
+                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+            })
+        }
         var mediaPermissionPending = false
         controls.addView(MaterialSwitch(settingsContext).apply {
             setText(R.string.ldsp_vm_media_play_pause)
