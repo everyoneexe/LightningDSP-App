@@ -2,6 +2,8 @@ package lightning.dsp.volumemanager.backend
 
 /** The master setting gates both on-demand and permanent controls in Session/Fusion modes. */
 internal object SessionDspButtonVisibilityPolicy {
+    fun modeEligible(globalMode: Boolean): Boolean = !globalMode
+
     fun shouldShow(modeEligible: Boolean, enabled: Boolean, always: Boolean, revealed: Boolean) =
         modeEligible && enabled && (always || revealed)
 

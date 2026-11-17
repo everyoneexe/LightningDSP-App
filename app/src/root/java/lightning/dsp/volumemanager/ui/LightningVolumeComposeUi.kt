@@ -234,10 +234,12 @@ internal fun LightningVolumeManagerScreen(
     var showSessionDspControls by remember { mutableStateOf(panelPrefs.getBoolean("show_session_dsp_controls", false)) }
     var alwaysShowSessionDspControls by remember { mutableStateOf(panelPrefs.getBoolean("always_show_session_dsp_controls", true)) }
     var appDspButtonsRevealed by rememberSaveable { mutableStateOf(false) }
-    var sessionMode by remember {
-        mutableStateOf(!(context.applicationContext as MainApplication).isGlobalMode &&
-            !(context.applicationContext as MainApplication).isAppMixerMode)
+    var processingModes by remember {
+        val app = context.applicationContext as MainApplication
+        mutableStateOf(app.isGlobalMode to app.isAppMixerMode)
     }
+    val sessionMode = !processingModes.first && !processingModes.second
+    val perAppDspMode = SessionDspButtonVisibilityPolicy.modeEligible(processingModes.first)
     var hiddenAppIds by remember(panelPrefs) { mutableStateOf(readFloatingHiddenAppIds(panelPrefs)) }
     var managerHiddenAppIds by remember(panelPrefs) { mutableStateOf(readManagerHiddenAppIds(panelPrefs)) }
     DisposableEffect(panelPrefs, audioPrefs) {
@@ -254,13 +256,12 @@ internal fun LightningVolumeManagerScreen(
             if (key == "process_work_profile_audio") processWorkProfileAudio = panelPrefs.getBoolean("process_work_profile_audio", false)
             if (key == "show_session_dsp_controls") showSessionDspControls = panelPrefs.getBoolean("show_session_dsp_controls", false)
             if (key == "always_show_session_dsp_controls") alwaysShowSessionDspControls = panelPrefs.getBoolean("always_show_session_dsp_controls", true)
-            sessionMode = !(context.applicationContext as MainApplication).isGlobalMode &&
-                !(context.applicationContext as MainApplication).isAppMixerMode
+            processingModes = (context.applicationContext as MainApplication).let { it.isGlobalMode to it.isAppMixerMode }
         }
         val audioModeListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == context.getString(R.string.key_audioformat_processing))
-                sessionMode = !(context.applicationContext as MainApplication).isGlobalMode &&
-                    !(context.applicationContext as MainApplication).isAppMixerMode
+            if (key == null || key == context.getString(R.string.key_audioformat_processing) ||
+                key == context.getString(R.string.key_audioformat_processing_app_mixer))
+                processingModes = (context.applicationContext as MainApplication).let { it.isGlobalMode to it.isAppMixerMode }
         }
         panelPrefs.registerOnSharedPreferenceChangeListener(listener)
         audioPrefs.registerOnSharedPreferenceChangeListener(audioModeListener)
@@ -350,11 +351,11 @@ internal fun LightningVolumeManagerScreen(
             snapshot.hiddenFromPanel != hiddenAppIds ||
             snapshot.hiddenFromManager != managerHiddenAppIds || editedAppSettings.isNotEmpty()
     } == true
-    androidx.compose.runtime.LaunchedEffect(sessionMode, showSessionDspControls, alwaysShowSessionDspControls) {
-        if (!sessionMode || !showSessionDspControls || alwaysShowSessionDspControls) appDspButtonsRevealed = false
+    androidx.compose.runtime.LaunchedEffect(perAppDspMode, showSessionDspControls, alwaysShowSessionDspControls) {
+        if (!perAppDspMode || !showSessionDspControls || alwaysShowSessionDspControls) appDspButtonsRevealed = false
     }
     val showAppDspButtons = SessionDspButtonVisibilityPolicy.shouldShow(
-        sessionMode, showSessionDspControls, alwaysShowSessionDspControls, appDspButtonsRevealed
+        perAppDspMode, showSessionDspControls, alwaysShowSessionDspControls, appDspButtonsRevealed
     )
     MaterialTheme(colorScheme = lightningVolumeColorScheme(scheme, dark)) {
         Scaffold(
@@ -463,7 +464,7 @@ internal fun LightningVolumeManagerScreen(
                                 DspCard(onOpenEffect = onOpenEffect,
                                     onDspIconClick = {
                                         appDspButtonsRevealed = SessionDspButtonVisibilityPolicy.onIconClick(
-                                            sessionMode, showSessionDspControls, alwaysShowSessionDspControls, appDspButtonsRevealed)
+                                            perAppDspMode, showSessionDspControls, alwaysShowSessionDspControls, appDspButtonsRevealed)
                                     })
                             } else if (editing) {
                                 Text("LightningDSP", modifier = Modifier.padding(14.dp))
@@ -746,10 +747,12 @@ internal fun LightningVolumeFloatingPanel(
     var showSessionDspButtons by remember { mutableStateOf(panelPrefs.getBoolean("show_session_dsp_controls", false)) }
     var alwaysShowSessionDspButtons by remember { mutableStateOf(panelPrefs.getBoolean("always_show_session_dsp_controls", true)) }
     var appDspButtonsRevealed by rememberSaveable { mutableStateOf(false) }
-    var sessionMode by remember {
-        mutableStateOf(!(context.applicationContext as MainApplication).isGlobalMode &&
-            !(context.applicationContext as MainApplication).isAppMixerMode)
+    var processingModes by remember {
+        val app = context.applicationContext as MainApplication
+        mutableStateOf(app.isGlobalMode to app.isAppMixerMode)
     }
+    val sessionMode = !processingModes.first && !processingModes.second
+    val perAppDspMode = SessionDspButtonVisibilityPolicy.modeEligible(processingModes.first)
     var hiddenAppIds by remember(panelPrefs) { mutableStateOf(readFloatingHiddenAppIds(panelPrefs)) }
     var panelTheme by remember {
         mutableStateOf(LightningVolumePanelTheme.fromPreference(
@@ -770,9 +773,9 @@ internal fun LightningVolumeFloatingPanel(
             }
         }
         val audioModeListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == context.getString(R.string.key_audioformat_processing))
-                sessionMode = !(context.applicationContext as MainApplication).isGlobalMode &&
-                    !(context.applicationContext as MainApplication).isAppMixerMode
+            if (key == null || key == context.getString(R.string.key_audioformat_processing) ||
+                key == context.getString(R.string.key_audioformat_processing_app_mixer))
+                processingModes = (context.applicationContext as MainApplication).let { it.isGlobalMode to it.isAppMixerMode }
         }
         panelPrefs.registerOnSharedPreferenceChangeListener(listener)
         audioPrefs.registerOnSharedPreferenceChangeListener(audioModeListener)
@@ -789,11 +792,11 @@ internal fun LightningVolumeFloatingPanel(
             .map { it.identityKey }
     } else emptyList()
     val activeApps = appOrder.displayOrder(activeIds).mapNotNull(appById::get)
-    androidx.compose.runtime.LaunchedEffect(sessionMode, showSessionDspButtons, alwaysShowSessionDspButtons) {
-        if (!sessionMode || !showSessionDspButtons || alwaysShowSessionDspButtons) appDspButtonsRevealed = false
+    androidx.compose.runtime.LaunchedEffect(perAppDspMode, showSessionDspButtons, alwaysShowSessionDspButtons) {
+        if (!perAppDspMode || !showSessionDspButtons || alwaysShowSessionDspButtons) appDspButtonsRevealed = false
     }
     val showAppDspButtons = SessionDspButtonVisibilityPolicy.shouldShow(
-        sessionMode, showSessionDspButtons, alwaysShowSessionDspButtons, appDspButtonsRevealed
+        perAppDspMode, showSessionDspButtons, alwaysShowSessionDspButtons, appDspButtonsRevealed
     )
     val dark = panelTheme.isDark(androidx.compose.foundation.isSystemInDarkTheme())
     val scheme = if (android.os.Build.VERSION.SDK_INT >= 31) {
@@ -827,7 +830,7 @@ internal fun LightningVolumeFloatingPanel(
                         DspCard(onOpenEffect = onClose, floating = true, floatingLightTheme = !dark,
                             onDspIconClick = {
                                 appDspButtonsRevealed = SessionDspButtonVisibilityPolicy.onIconClick(
-                                    sessionMode, showSessionDspButtons, alwaysShowSessionDspButtons, appDspButtonsRevealed)
+                                    perAppDspMode, showSessionDspButtons, alwaysShowSessionDspButtons, appDspButtonsRevealed)
                             })
                     }
                 }

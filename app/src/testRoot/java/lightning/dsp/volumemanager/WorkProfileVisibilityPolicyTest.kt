@@ -35,6 +35,6 @@ class WorkProfileVisibilityPolicyTest {
         assertTrue(sessionDatabase.contains("isPackageDspEnabled(packageName, session.uid) && enabled"))
         assertTrue(sessionDatabase.contains("if (app.isGlobalMode) return true"))
         assertTrue(sessionDatabase.contains("if (app.isAppMixerMode) return false"))
-        assertTrue(compose.contains("!(context.applicationContext as MainApplication).isAppMixerMode"))
+        assertTrue(compose.contains("val sessionMode = !processingModes.first && !processingModes.second"))
     }
 }

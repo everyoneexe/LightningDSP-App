@@ -5,6 +5,11 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SessionDspButtonVisibilityPolicyTest {
+    @Test fun sessionAndFusionAllowControlsButGlobalDoesNot() {
+        assertTrue(SessionDspButtonVisibilityPolicy.modeEligible(globalMode = false))
+        assertFalse(SessionDspButtonVisibilityPolicy.modeEligible(globalMode = true))
+    }
+
     @Test fun alwaysButtonRequiresSessionModeAndItsSetting() {
         assertTrue(SessionDspButtonVisibilityPolicy.shouldShow(true, true, true, false))
         assertFalse(SessionDspButtonVisibilityPolicy.shouldShow(false, true, true, false))
