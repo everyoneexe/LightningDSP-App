@@ -108,20 +108,6 @@ class VolumePanelSurfaceService : Service() {
             }
         }
 
-        override fun relayout(owner: IBinder?, generation: Long, width: Int, height: Int) {
-            if (!trustedCaller() || owner == null) return
-            main.post {
-                val current = session ?: return@post
-                if (!SurfaceSessionPolicy.current(current.owner == owner, current.generation, generation) ||
-                    !SurfaceSessionPolicy.validRelayout(width, height, current.maxWidth, current.maxHeight)) return@post
-                if (current.width == width && current.height == height) return@post
-                current.width = width
-                current.height = height
-                runCatching { current.surfaceHost?.relayout(width, height) }
-                    .onFailure { close(current, notify = true) }
-            }
-        }
-
         override fun release(owner: IBinder?, generation: Long) {
             if (!trustedCaller() || owner == null) return
             main.post {
@@ -222,7 +208,7 @@ class VolumePanelSurfaceService : Service() {
                 setViewTreeSavedStateRegistryOwner(current)
                 setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
                 setContent {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopStart) {
                         LightningVolumeFloatingPanel(current.state, onClose = {
                             runCatching { callback.dismiss(generation) }
                         }, onPanelFocusChanged = {
@@ -268,8 +254,6 @@ class VolumePanelSurfaceService : Service() {
             }
             current.maxWidth = width
             current.maxHeight = height
-            current.width = width
-            current.height = height
             surfaceHost.setView(root, width, height)
             current.lifecycleRegistry.currentState = Lifecycle.State.RESUMED
             val stateObserver = Observer<VolumeManagerState> { state ->
@@ -326,8 +310,6 @@ class VolumePanelSurfaceService : Service() {
         var surfaceHost: SurfaceControlViewHost? = null
         var maxWidth = 0
         var maxHeight = 0
-        var width = 0
-        var height = 0
         var state by mutableStateOf(LightningDspVolumeManager.state.value ?: VolumeManagerState())
         var observer: Observer<VolumeManagerState>? = null
         var drawTimeout: Runnable? = null

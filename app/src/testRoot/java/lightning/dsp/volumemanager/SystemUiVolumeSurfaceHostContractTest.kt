@@ -63,11 +63,14 @@ class SystemUiVolumeSurfaceHostContractTest {
         assertTrue(host.contains("windows.removeViewImmediate(oldWindow)"))
     }
 
-    @Test fun embeddedPanelStaysCenteredAsItsContentHeightChanges() {
+    @Test fun embeddedViewportCanGrowWhileTheSystemUiWindowTracksVisibleContent() {
         val service = File(app,
             "src/root/java/lightning/dsp/volumemanager/surface/VolumePanelSurfaceService.kt").readText()
-        assertTrue(service.contains("Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center)"))
-        assertFalse(service.contains("contentAlignment = Alignment.TopCenter"))
+        assertTrue(service.contains("Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopStart)"))
+        assertTrue(service.contains("surfaceHost.setView(root, width, height)"))
+        assertFalse(service.contains("surfaceHost?.relayout"))
+        assertTrue(host.contains("layout.width = width;"))
+        assertTrue(host.contains("windows.updateViewLayout(window, layout);"))
     }
 
     @Test fun failedSurfaceReplaysOnlyVerifiedStockCallbackAndDragKeepsPanelAlive() {

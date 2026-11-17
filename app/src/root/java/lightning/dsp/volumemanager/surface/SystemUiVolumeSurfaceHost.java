@@ -398,7 +398,6 @@ public final class SystemUiVolumeSurfaceHost {
                     layout.width = width;
                     layout.height = height;
                     windows.updateViewLayout(window, layout);
-                    service.relayout(owner, generation, width, height);
                 } catch (Throwable error) { warn("surface resize", error); fail(); }
             });
         }
