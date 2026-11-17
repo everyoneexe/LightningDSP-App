@@ -7,10 +7,10 @@ import android.os.Process as AndroidProcess
 
 /** Launch only from a supervised background owner that retains stdin until stop. */
 internal class AppMixerProcessLauncher(private val context: Context) {
-    fun launch(uids: Set<Int>, includeSystemSounds: Boolean): Process {
+    fun launch(uids: Set<Int>, includeSystemSounds: Boolean, userIds: Set<Int> = setOf(AndroidProcess.myUid() / 100000)): Process {
         val values = uids.sorted().joinToString(",")
         // Reject exclusions that cannot fit alongside the selected usage and user rules.
-        AppMixerExperimentConfig.parseExcludedUids("--exclude-uids=$values", includeSystemSounds)
+        AppMixerExperimentConfig.parseExcludedUids("--exclude-uids=$values", includeSystemSounds, userIds.size)
         val apk = "'" + context.applicationInfo.sourceDir.replace("'", "'\\''") + "'"
         val abi = (if (AndroidProcess.is64Bit()) Build.SUPPORTED_64_BIT_ABIS else Build.SUPPORTED_32_BIT_ABIS)
             .firstOrNull() ?: error("Cannot establish relay ABI")
@@ -27,6 +27,6 @@ internal class AppMixerProcessLauncher(private val context: Context) {
         }
         check(owner.uid == android.os.Process.myUid())
         return ProcessBuilder("su", "-c", "CLASSPATH=$apk LD_LIBRARY_PATH=$nativeDir exec $runtime -Djava.library.path=$nativeDir /system/bin " +
-            "lightning.dsp.interop.appmixer.AppMixerRoutingExperiment --supervised --exclude-uids=$values --user=${owner.uid / 100000} --owner=${owner.uid} --owner-pid=${owner.pid} --owner-start=${owner.startTicks} --include-system-sounds=${if (includeSystemSounds) 1 else 0} --local-dsp --owner-external-b64=$encodedExternal").start()
+            "lightning.dsp.interop.appmixer.AppMixerRoutingExperiment --supervised --exclude-uids=$values --user=${userIds.sorted().joinToString(",")} --owner=${owner.uid} --owner-pid=${owner.pid} --owner-start=${owner.startTicks} --include-system-sounds=${if (includeSystemSounds) 1 else 0} --local-dsp --owner-external-b64=$encodedExternal").start()
     }
 }

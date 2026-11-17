@@ -60,13 +60,15 @@ object AppMixerRoutingExperiment {
         }
         val supervised = args.size == 9 && args[7] == "--local-dsp" && args[8].startsWith("--owner-external-b64=") && args[0] == "--supervised" && args[1].startsWith("--exclude-uids=") && args[2].startsWith("--user=") && args[3].startsWith("--owner=") && args[4].startsWith("--owner-pid=") && args[5].startsWith("--owner-start=") && args[6].matches(Regex("--include-system-sounds=[01]"))
         val config = if (supervised) AppMixerExperimentConfig(
-            AppMixerExperimentConfig.parseExcludedUids(args[1], args[6].endsWith("=1")), 90, excludeUids = true,
-            userId = args[2].removePrefix("--user=").toInt().also { require(it in 0..21473) },
+            AppMixerExperimentConfig.parseExcludedUids(args[1], args[6].endsWith("=1"),
+                AppMixerExperimentConfig.parseUserIds(args[2].removePrefix("--user=")).size), 90, excludeUids = true,
+            userId = args[3].removePrefix("--owner=").toInt() / 100000,
+            userIds = AppMixerExperimentConfig.parseUserIds(args[2].removePrefix("--user=")),
             ownerUid = args[3].removePrefix("--owner=").toInt(),
             includeSystemSounds = args[6].endsWith("=1"), localDsp = true,
             ownerExternalFiles = String(Base64.decode(args[8].removePrefix("--owner-external-b64="), Base64.URL_SAFE), Charsets.UTF_8))
         else AppMixerExperimentConfig.parse(args)
-        if (supervised) require(config.ownerUid in config.uids && config.ownerUid / 100000 == config.userId && config.ownerUid % 100000 in 10000..19999)
+        if (supervised) require(config.ownerUid in config.uids && config.ownerUid / 100000 in config.userIds && config.ownerUid % 100000 in 10000..19999)
         check(Process.myUid() == 0) { "A separately authorized root app_process is required" }
         val stop = AtomicBoolean(false)
         if (supervised) {
@@ -91,7 +93,7 @@ object AppMixerRoutingExperiment {
             return
         }
         val commands = ArrayBlockingQueue<String>(1)
-        val updater = AtomicReference<((Set<Int>, Boolean) -> Boolean)?>(null)
+        val updater = AtomicReference<((Set<Int>, Boolean, Set<Int>) -> Boolean)?>(null)
         Thread {
             try {
                 val input = System.`in`.bufferedReader()
@@ -101,13 +103,15 @@ object AppMixerRoutingExperiment {
                     while (true) {
                         val line = AppMixerControlProtocol.readCommand(input, 256) ?: break
                         if (line == "STOP") break
-                        val parts = line.split(' ', limit = 4)
-                        if (parts.size != 4 || parts[0] != "UPDATE" || parts[1].toLongOrNull() == null || parts[2] !in setOf("0", "1")) break
+                        val parts = line.split(' ', limit = 5)
+                        if (parts.size !in 4..5 || parts[0] != "UPDATE" || parts[1].toLongOrNull() == null || parts[2] !in setOf("0", "1")) break
                         val ok = runCatching {
                             val includeSystemSounds = parts[2] == "1"
-                            val excluded = AppMixerExperimentConfig.parseExcludedUids("--exclude-uids=${parts[3]}", includeSystemSounds)
+                            val users = if (parts.size == 5) AppMixerExperimentConfig.parseUserIds(parts[4]) else config.userIds
+                            require(config.userId in users)
+                            val excluded = AppMixerExperimentConfig.parseExcludedUids("--exclude-uids=${parts[3]}", includeSystemSounds, users.size)
                             require(config.ownerUid in excluded)
-                            updater.get()?.invoke(excluded, includeSystemSounds) == true
+                            updater.get()?.invoke(excluded, includeSystemSounds, users) == true
                         }.getOrDefault(false)
                         println("APP_MIXER:${if (ok) "UPDATED" else "UPDATE_FAILED"} ${parts[1]}")
                         System.out.flush()
@@ -127,7 +131,7 @@ object AppMixerRoutingExperiment {
     }
 
     private fun run(context: Context, config: AppMixerExperimentConfig, stop: AtomicBoolean,
-                    updater: AtomicReference<((Set<Int>, Boolean) -> Boolean)?>,
+                    updater: AtomicReference<((Set<Int>, Boolean, Set<Int>) -> Boolean)?>,
                     prepareExternalEffect: ((Int) -> Unit)?) {
         val audio = context.getSystemService(AudioManager::class.java)
         val policyType = Class.forName("android.media.audiopolicy.AudioPolicy")
@@ -143,7 +147,7 @@ object AppMixerRoutingExperiment {
             audio.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER))
         val ruleBuilderType = Class.forName("android.media.audiopolicy.AudioMixingRule\$Builder")
         val uidRule = ruleType.getField("RULE_MATCH_UID").getInt(null)
-        fun buildRule(uids: Set<Int>, includeSystemSounds: Boolean = config.includeSystemSounds): Any {
+        fun buildRule(uids: Set<Int>, includeSystemSounds: Boolean = config.includeSystemSounds, users: Set<Int> = config.userIds): Any {
         val ruleBuilder = ruleBuilderType.getConstructor().newInstance()
         // Some apps report PCM as UNKNOWN. Optional notification/sonification usage
         // matching covers notification tones and keyboard/system clicks, not calls or alarms.
@@ -164,8 +168,8 @@ object AppMixerRoutingExperiment {
         }
         if (config.excludeUids) {
             val userRule = ruleType.getField("RULE_MATCH_USERID").getInt(null)
-            ruleBuilderType.getMethod("addMixRule", Int::class.javaPrimitiveType, Any::class.java)
-                .invoke(ruleBuilder, userRule, config.userId)
+            for (user in users.sorted()) ruleBuilderType.getMethod("addMixRule", Int::class.javaPrimitiveType, Any::class.java)
+                .invoke(ruleBuilder, userRule, user)
         }
         for (uid in uids.sorted()) {
             val method = if (config.excludeUids) "excludeMixRule" else "addMixRule"
@@ -250,9 +254,9 @@ object AppMixerRoutingExperiment {
             check(recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING)
             effect?.let { check(it.setEnabled(true) == AudioEffect.SUCCESS && it.enabled && it.hasControl()) }
             player.play()
-            if (config.excludeUids) updater.set { excluded, includeSystemSounds ->
+            if (config.excludeUids) updater.set { excluded, includeSystemSounds, users ->
                 val update = policyType.getMethod("updateMixingRules", List::class.java)
-                val updates = listOf(android.util.Pair(mix, buildRule(excluded, includeSystemSounds)))
+                val updates = listOf(android.util.Pair(mix, buildRule(excluded, includeSystemSounds, users)))
                 (update.invoke(policy, updates) as Int) == 0
             }
             println("APP_MIXER:RUNNING session=${player.audioSessionId} uidCount=${config.uids.size} effect=${if (config.localDsp) "local" else if (prepareExternalEffect == null) "diagnostic" else "external"}; coverage NOT verified")

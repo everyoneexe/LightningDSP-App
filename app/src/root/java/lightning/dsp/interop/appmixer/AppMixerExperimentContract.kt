@@ -10,19 +10,28 @@ internal data class AppMixerExperimentConfig(
     val includeSystemSounds: Boolean = false,
     val localDsp: Boolean = false,
     val ownerExternalFiles: String = "",
+    val userIds: Set<Int> = setOf(userId),
 ) {
     companion object {
         const val MAX_SUPERVISED_UIDS = 1024
         // Media, game, and unknown are always matched; system sounds add notification,
-        // notification-event, and sonification usages. One user rule shares the 20-rule cap.
+        // notification-event, and sonification usages. Every allowed user shares the 20-rule cap.
         const val MAX_EXCLUDED_UIDS = 16
-        fun maxExcludedUids(includeSystemSounds: Boolean): Int =
-            20 - 1 - 3 - if (includeSystemSounds) 3 else 0
+        fun maxExcludedUids(includeSystemSounds: Boolean, userCount: Int = 1): Int {
+            require(userCount in 1..8)
+            return 20 - userCount - 3 - if (includeSystemSounds) 3 else 0
+        }
 
-        fun parseExcludedUids(argument: String, includeSystemSounds: Boolean = false): Set<Int> {
+        fun parseUserIds(value: String): Set<Int> {
+            val users = value.split(',').map { it.toInt() }
+            require(users.size in 1..8 && users.distinct().size == users.size && users.all { it in 0..21473 })
+            return users.toSet()
+        }
+
+        fun parseExcludedUids(argument: String, includeSystemSounds: Boolean = false, userCount: Int = 1): Set<Int> {
             require(argument.startsWith("--exclude-uids="))
             val values = argument.removePrefix("--exclude-uids=").split(',').map { it.toInt() }
-            require(values.size in 1..maxExcludedUids(includeSystemSounds) && 0 in values && values.all {
+            require(values.size in 1..maxExcludedUids(includeSystemSounds, userCount) && 0 in values && values.all {
                 it == 0 || (it >= 0 && it % 100000 in 10000..19999)
             }) { "Invalid or excessive UID exclusions" }
             return values.toSet()

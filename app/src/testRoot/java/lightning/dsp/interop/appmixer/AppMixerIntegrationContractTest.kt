@@ -30,7 +30,7 @@ class AppMixerIntegrationContractTest {
         assertTrue(settings.contains("sessionMode?.isChecked = !globalEnabled && !mixerEnabled"))
         assertTrue(database.contains("!app.isAppMixerMode && id !in supplementalSessionReservations"))
         assertTrue(database.contains("!app.isAppMixerMode && (id <= 0 ||"))
-        assertTrue(inventory.contains("SESSION_DSP_ENABLED_PREFIX + name, true"))
+        assertTrue(inventory.contains("SessionDspControlPreferences.preferenceKey(name, uid / 100000, currentUser), true"))
     }
 
     @Test fun persistedPoweredAppMixerModeStartsProcessorWhenMainActivityOpens() {

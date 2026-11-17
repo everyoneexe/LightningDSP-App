@@ -31,7 +31,7 @@ class ProcessingNotificationTextContractTest {
         val controller = source("src/root/java/lightning/dsp/interop/appmixer/AppMixerModeController.kt")
         assertEquals(2, Regex("R.string.notification_fusion_relay_working").findAll(controller).count())
         assertTrue(controller.contains("running = supervisor.start()"))
-        assertTrue(controller.contains("if (supervisor.updateRules(next, nextSystemSounds))"))
+        assertTrue(controller.contains("if (supervisor.updateRules(next, nextSystemSounds, nextUsers))"))
         assertTrue(controller.contains("Fusion Mode failed: $"))
         assertTrue(controller.contains("system sounds are excluded"))
         assertTrue(controller.contains("Fusion Mode relay stopped; coverage is unavailable until retry."))

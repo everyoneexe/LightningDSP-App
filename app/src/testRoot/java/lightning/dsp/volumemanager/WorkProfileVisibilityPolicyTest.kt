@@ -25,7 +25,7 @@ class WorkProfileVisibilityPolicyTest {
         assertTrue(compose.contains("\"show_work_profile_apps\", WorkProfileVisibilityPolicy.DEFAULT_SHOW_WORK_APPS"))
         assertTrue(compose.contains("WorkProfileBadge"))
         assertTrue(compose.contains("Icons.Default.Work"))
-        assertTrue(compose.contains("hasWorkProfileApps && sessionMode"))
+        assertTrue(compose.contains("hasWorkProfileApps && !processingModes.first"))
         assertTrue(compose.contains("Process work profile audio"))
         assertTrue(compose.contains("LightningDspVolumeManager::setProcessWorkProfileAudio"))
 

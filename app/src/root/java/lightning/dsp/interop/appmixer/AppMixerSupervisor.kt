@@ -104,15 +104,15 @@ internal class AppMixerSupervisor(
     @Synchronized fun updateExclusions(exclusions: Set<Int>): Boolean = updateRules(exclusions, false)
 
     /** Updates usage coverage and UID exceptions atomically without stopping the relay. */
-    @Synchronized fun updateRules(exclusions: Set<Int>, includeSystemSounds: Boolean): Boolean {
+    @Synchronized fun updateRules(exclusions: Set<Int>, includeSystemSounds: Boolean, userIds: Set<Int>? = null): Boolean {
         val process = child ?: return false
         val lines = responses ?: return false
         if (!process.isAlive) return false
         return try {
             val values = exclusions.sorted().joinToString(",")
-            AppMixerExperimentConfig.parseExcludedUids("--exclude-uids=$values", includeSystemSounds)
+            AppMixerExperimentConfig.parseExcludedUids("--exclude-uids=$values", includeSystemSounds, userIds?.size ?: 1)
             val id = ++updateId
-            process.outputStream.write("UPDATE $id ${if (includeSystemSounds) 1 else 0} $values\n".toByteArray(Charsets.US_ASCII))
+            process.outputStream.write("UPDATE $id ${if (includeSystemSounds) 1 else 0} $values${userIds?.sorted()?.joinToString(",")?.let { " $it" }.orEmpty()}\n".toByteArray(Charsets.US_ASCII))
             process.outputStream.flush()
             if (awaitLine(lines, "APP_MIXER:UPDATED $id", 8_000) == null)
                 failure(lastFailureReason ?: "mix rule update was not confirmed")

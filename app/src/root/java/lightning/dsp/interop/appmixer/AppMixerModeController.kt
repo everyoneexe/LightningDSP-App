@@ -28,15 +28,16 @@ internal class AppMixerModeController(
     private var running = false
     private var selected = emptySet<Int>()
     private var selectedSystemSounds = true
+    private var selectedUsers = setOf(android.os.Process.myUid() / 100000)
     private var disposed = false
     private var standbyLease: AutoCloseable? = null
     private var lastStatus: String? = null
     private fun status(value: String) {
         if (value != lastStatus) { lastStatus = value; onStatus(value) }
     }
-    private val supervisor: AppMixerSupervisor = AppMixerSupervisor({ launcher.launch(selected, selectedSystemSounds) }, acquireExclusive, effect::prepare,
+    private val supervisor: AppMixerSupervisor = AppMixerSupervisor({ launcher.launch(selected, selectedSystemSounds, selectedUsers) }, acquireExclusive, effect::prepare,
         { modeAndPowerWanted() && inventory.readRoute(selectedSystemSounds)?.let {
-            it.excludedUids == selected && it.includesSystemSounds == selectedSystemSounds
+            it.userIds == selectedUsers && it.excludedUids == selected && it.includesSystemSounds == selectedSystemSounds
         } == true }) { clean ->
         runCatching {
             executor.execute {
@@ -49,7 +50,7 @@ internal class AppMixerModeController(
         }
     }
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key == null || key.startsWith(SESSION_DSP_ENABLED_PREFIX)) runCatching { executor.execute { reconcile(false) } }
+        if (key == null || key.startsWith(SESSION_DSP_ENABLED_PREFIX) || key == "process_work_profile_audio") runCatching { executor.execute { reconcile(false) } }
     }
     private val appListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == app.getString(R.string.key_audioformat_include_system_sounds))
@@ -59,6 +60,7 @@ internal class AppMixerModeController(
     init {
         panel.registerOnSharedPreferenceChangeListener(listener)
         appPrefs.registerOnSharedPreferenceChangeListener(appListener)
+        executor.scheduleWithFixedDelay({ if (requested) reconcile(false) }, 2, 2, java.util.concurrent.TimeUnit.SECONDS)
     }
 
     fun request(enable: Boolean) {
@@ -70,6 +72,7 @@ internal class AppMixerModeController(
         val requestedSystemSounds = appPrefs.getBoolean(app.getString(R.string.key_audioformat_include_system_sounds), true)
         val route = if (requested) inventory.readRoute(requestedSystemSounds) else null
         val next = if (requested) route?.excludedUids else emptySet()
+        val nextUsers = route?.userIds ?: setOf(android.os.Process.myUid() / 100000)
         val nextSystemSounds = route?.includesSystemSounds ?: requestedSystemSounds
         val systemSoundFallback = requested && requestedSystemSounds && route != null && !route.includesSystemSounds
         if (next == null || next.isEmpty()) {
@@ -90,14 +93,15 @@ internal class AppMixerModeController(
             } else status("Fusion Mode off requested; cleanup may be pending.")
             return
         }
-        if (running && !renew && selected == next && selectedSystemSounds == nextSystemSounds) {
+        if (running && !renew && selected == next && selectedSystemSounds == nextSystemSounds && selectedUsers == nextUsers) {
             if (systemSoundFallback) status("Fusion Mode is active, but system sounds are excluded because too many apps are turned off.")
             return
         }
         if (running && !renew) {
-            if (supervisor.updateRules(next, nextSystemSounds)) {
+            if (supervisor.updateRules(next, nextSystemSounds, nextUsers)) {
                 selected = next
                 selectedSystemSounds = nextSystemSounds
+                selectedUsers = nextUsers
                 status(if (systemSoundFallback)
                     "Fusion Mode updated, but system sounds are excluded because too many apps are turned off."
                 else app.getString(R.string.notification_fusion_relay_working))
@@ -114,6 +118,7 @@ internal class AppMixerModeController(
         running = false
         selected = next
         selectedSystemSounds = nextSystemSounds
+        selectedUsers = nextUsers
         if (requested) {
             running = supervisor.start()
             if (!running) {

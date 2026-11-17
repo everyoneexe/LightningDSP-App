@@ -431,7 +431,7 @@ internal fun LightningVolumeManagerScreen(
                             })
                         }
                     }
-                    if (hasWorkProfileApps && sessionMode) item(key = "work_profile_processing") {
+                    if (hasWorkProfileApps && !processingModes.first) item(key = "work_profile_processing") {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 6.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text("Process work profile audio", Modifier.weight(1f),
@@ -439,7 +439,7 @@ internal fun LightningVolumeManagerScreen(
                                 Switch(checked = processWorkProfileAudio, onCheckedChange =
                                     LightningDspVolumeManager::setProcessWorkProfileAudio)
                             }
-                            Text("Off by default. Applies Session DSP to work-profile apps; per-app controls remain available.",
+                            Text("Off by default. Applies DSP to work-profile apps in Session and Fusion; per-app controls remain available.",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodySmall)
                         }
