@@ -5,8 +5,8 @@ const val SESSION_DSP_ENABLED_PREFIX = "session_dsp_enabled:"
 
 /**
  * Keeps existing current-user preference keys stable while isolating work-profile copies
- * of the same package. Work-profile DSP is intentionally opt-in; legacy/user installs
- * continue to default on.
+ * of the same package. The work-profile feature-level opt-in gates DSP globally within
+ * Session mode; individual app switches remain enabled by default after that opt-in.
  */
 object SessionDspControlPreferences {
     private const val USER_ID_RANGE = 100_000
@@ -19,5 +19,8 @@ object SessionDspControlPreferences {
     fun preferenceKey(packageName: String, userId: Int, currentUserId: Int): String =
         SESSION_DSP_ENABLED_PREFIX + identityKey(packageName, userId, currentUserId)
 
-    fun defaultEnabled(userId: Int, currentUserId: Int): Boolean = userId == currentUserId
+    fun defaultEnabled(): Boolean = true
+
+    fun workProfileAudioAllowed(userId: Int, currentUserId: Int, requested: Boolean): Boolean =
+        userId == currentUserId || requested
 }

@@ -105,7 +105,8 @@ object LightningDspVolumeManager {
     private val panelPreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == SHOW_MEDIA_CONTROLS_KEY || key == null) worker.execute { configureMediaControls() }
         if (key == SystemUiVolumePanelOption.KEY || key == null) worker.execute { sendSettings() }
-        if (key == null || key.startsWith(SESSION_DSP_ENABLED_PREFIX)) worker.execute { publish(force = true) }
+        if (key == null || key.startsWith(SESSION_DSP_ENABLED_PREFIX) || key == "process_work_profile_audio")
+            worker.execute { publish(force = true) }
     }
     private var systemVolumeOperationId = 0L
     private var generation = 0
@@ -154,6 +155,18 @@ object LightningDspVolumeManager {
         runCatching {
             (context.applicationContext as MainApplication).rootSessionDatabase
                 .setPackageDspEnabled(application.packageName, enabled, application.uid)
+        }
+        context.sendLocalBroadcast(Intent(Constants.ACTION_PREFERENCES_UPDATED))
+        worker.execute { publish(force = true) }
+    }
+
+    /** Master opt-in for work-profile Session DSP; Global mode cannot apply a per-user gate. */
+    fun setProcessWorkProfileAudio(enabled: Boolean) {
+        check(::panelPreferences.isInitialized)
+        panelPreferences.edit().putBoolean("process_work_profile_audio", enabled).apply()
+        runCatching {
+            val app = context.applicationContext as MainApplication
+            if (!app.isGlobalMode && !app.isAppMixerMode) app.rootSessionDatabase.syncWithPreferences()
         }
         context.sendLocalBroadcast(Intent(Constants.ACTION_PREFERENCES_UPDATED))
         worker.execute { publish(force = true) }
@@ -392,6 +405,10 @@ object LightningDspVolumeManager {
                 // Reuse the normal opt-in/start/stop path; never bypass guarded cleanup.
                 // setEnabled also refreshes package-to-UID mapping and live playback rules.
                 setEnabled(isEnabled)
+                runCatching {
+                    val app = context.applicationContext as MainApplication
+                    if (!app.isGlobalMode && !app.isAppMixerMode) app.rootSessionDatabase.syncWithPreferences()
+                }
             }
         }
     }
@@ -907,6 +924,8 @@ object LightningDspVolumeManager {
         val now = SystemClock.elapsedRealtime()
         val apps = applications.map { application ->
             val name = identityKey(application)
+            val workProfile = SessionDspControlPreferences.userIdForUid(application.uid) !=
+                SessionDspControlPreferences.userIdForUid(android.os.Process.myUid())
             val mediaStatus = media[name]
             AppVolume(application.packageName, labels[name] ?: application.packageName,
                 application.uid, application.uid in activeUids,
@@ -919,10 +938,10 @@ object LightningDspVolumeManager {
                 panelPreferences.getBoolean(
                     SessionDspControlPreferences.preferenceKey(application.packageName,
                         SessionDspControlPreferences.userIdForUid(application.uid), SessionDspControlPreferences.userIdForUid(android.os.Process.myUid())),
-                    SessionDspControlPreferences.defaultEnabled(SessionDspControlPreferences.userIdForUid(application.uid),
-                        SessionDspControlPreferences.userIdForUid(android.os.Process.myUid()))),
+                    SessionDspControlPreferences.defaultEnabled()),
                 identityKey = name,
-                workProfile = SessionDspControlPreferences.userIdForUid(application.uid) != SessionDspControlPreferences.userIdForUid(android.os.Process.myUid()))
+                workProfile = workProfile,
+                workProfileDspAllowed = !workProfile || panelPreferences.getBoolean("process_work_profile_audio", false))
         }.sortedWith(compareByDescending<AppVolume> { it.active }.thenBy { it.label.lowercase() })
         val audio = context.getSystemService(AudioManager::class.java)
         val mediaVolume = runCatching { audio.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() /
@@ -1105,6 +1124,7 @@ data class AppVolume(
     val dspEnabled: Boolean = true,
     val identityKey: String = packageName,
     val workProfile: Boolean = false,
+    val workProfileDspAllowed: Boolean = true,
 )
 
 data class VolumeManagerState(

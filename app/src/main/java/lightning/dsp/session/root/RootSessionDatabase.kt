@@ -276,12 +276,18 @@ class RootSessionDatabase(context: Context) : BaseSessionDatabase(context) {
             }
         }
 
-    fun isPackageDspEnabled(packageName: String, uid: Int = android.os.Process.myUid()): Boolean = app.isGlobalMode ||
-        context.getSharedPreferences("lightningdsp_volume_panel", Context.MODE_PRIVATE)
-            .getBoolean(SessionDspControlPreferences.preferenceKey(
-                packageName, SessionDspControlPreferences.userIdForUid(uid), SessionDspControlPreferences.userIdForUid(android.os.Process.myUid())),
-                SessionDspControlPreferences.defaultEnabled(
-                    SessionDspControlPreferences.userIdForUid(uid), SessionDspControlPreferences.userIdForUid(android.os.Process.myUid())))
+    fun isPackageDspEnabled(packageName: String, uid: Int = android.os.Process.myUid()): Boolean {
+        if (app.isGlobalMode) return true
+        if (app.isAppMixerMode) return false
+        val currentUserId = SessionDspControlPreferences.userIdForUid(android.os.Process.myUid())
+        val userId = SessionDspControlPreferences.userIdForUid(uid)
+        val preferences = context.getSharedPreferences("lightningdsp_volume_panel", Context.MODE_PRIVATE)
+        if (!SessionDspControlPreferences.workProfileAudioAllowed(
+                userId, currentUserId, preferences.getBoolean("process_work_profile_audio", false))) return false
+        return preferences.getBoolean(
+            SessionDspControlPreferences.preferenceKey(packageName, userId, currentUserId),
+            SessionDspControlPreferences.defaultEnabled())
+    }
 
     fun setPackageDspEnabled(packageName: String, enabled: Boolean, uid: Int = android.os.Process.myUid()) {
         context.getSharedPreferences("lightningdsp_volume_panel", Context.MODE_PRIVATE)
@@ -290,7 +296,9 @@ class RootSessionDatabase(context: Context) : BaseSessionDatabase(context) {
         val userId = SessionDspControlPreferences.userIdForUid(uid)
         sessionList.filterValues { it.packageName == packageName && SessionDspControlPreferences.userIdForUid(it.uid) == userId }.forEach { (id, session) ->
             if (id > 0) {
-                (session as? RemoteEffectSession)?.effect?.enabled = this.enabled && enabled && shouldProcess(id, session.uid, session.packageName)
+                (session as? RemoteEffectSession)?.effect?.enabled = this.enabled &&
+                    isPackageDspEnabled(packageName, session.uid) && enabled &&
+                    shouldProcess(id, session.uid, session.packageName)
                 recordPlaybackSuspension(id, session.uid, session.packageName)
             }
         }

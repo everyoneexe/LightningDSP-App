@@ -25,5 +25,16 @@ class WorkProfileVisibilityPolicyTest {
         assertTrue(compose.contains("\"show_work_profile_apps\", WorkProfileVisibilityPolicy.DEFAULT_SHOW_WORK_APPS"))
         assertTrue(compose.contains("WorkProfileBadge"))
         assertTrue(compose.contains("Icons.Default.Work"))
+        assertTrue(compose.contains("hasWorkProfileApps && sessionMode"))
+        assertTrue(compose.contains("Process work profile audio"))
+        assertTrue(compose.contains("LightningDspVolumeManager::setProcessWorkProfileAudio"))
+
+        val sessionDatabase = File(app, "src/main/java/lightning/dsp/session/root/RootSessionDatabase.kt").readText()
+        assertTrue(sessionDatabase.contains("workProfileAudioAllowed"))
+        assertTrue(sessionDatabase.contains("getBoolean(\"process_work_profile_audio\", false)"))
+        assertTrue(sessionDatabase.contains("isPackageDspEnabled(packageName, session.uid) && enabled"))
+        assertTrue(sessionDatabase.contains("if (app.isGlobalMode) return true"))
+        assertTrue(sessionDatabase.contains("if (app.isAppMixerMode) return false"))
+        assertTrue(compose.contains("!(context.applicationContext as MainApplication).isAppMixerMode"))
     }
 }
