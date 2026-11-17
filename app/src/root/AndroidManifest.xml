@@ -9,6 +9,10 @@
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
 
+    <permission android:name="com.lightning.dsp.permission.VOLUME_SURFACE_HOST"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.lightning.dsp.permission.VOLUME_SURFACE_HOST" />
+
     <application
         android:forceQueryable="true"
         tools:node="merge">
@@ -22,6 +26,11 @@
         <activity
             android:name="lightning.dsp.volumemanager.ui.LightningDspVolumeManagerActivity"
             android:exported="false" />
+        <!-- Explicit SystemUI binding; every surface transaction authenticates its actual Binder UID. -->
+        <service
+            android:name="lightning.dsp.volumemanager.surface.VolumePanelSurfaceService"
+            android:exported="true"
+            android:directBootAware="false" />
         <!-- Override the existing historical component, not a second DSP service. -->
         <service
             android:name="me.timschneeberger.rootlessjamesdsp.service.RootAudioProcessorService"
