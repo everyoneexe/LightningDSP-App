@@ -8,15 +8,45 @@ import org.junit.Test
 
 class VolumePanelSuppressionLeaseTest {
     @Test fun suppressionRequiresExplicitOptInAndLiveSystemUiHook() {
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, true, true, false))
-        assertTrue(VolumePanelSuppressionLease.shouldSuppress(true, true, true, true, false, optedIn = true, hookReady = true))
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, true, true, false, optedIn = false, hookReady = true))
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, true, true, false, optedIn = true, hookReady = false))
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(false, true, true, true, false, true, true))
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, false, true, true, false, true, true))
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, false, true, false, true, true))
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, true, false, false, true, true))
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, true, true, true, true, true))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, true, true, true, false))
+        assertTrue(VolumePanelSuppressionLease.shouldSuppress(
+            true, true, true, true, true, false, optedIn = true, hookReady = true
+        ))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppress(
+            true, true, true, true, true, false, optedIn = false, hookReady = true
+        ))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppress(
+            true, true, true, true, true, false, optedIn = true, hookReady = false
+        ))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, true, false, true, false, true, true))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppress(false, true, true, true, true, false, true, true))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, false, true, true, true, false, true, true))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, false, true, true, false, true, true))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, true, true, false, false, true, true))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, true, true, true, true, true, true))
+    }
+
+    @Test fun genericControllerKeepsStockPanelUnlessOptInAndOverlayAreLive() {
+        assertFalse(VolumePanelSuppressionLease.shouldSuppressController(
+            active = true, panelEnabled = true, overlayReady = true, controllerReady = true,
+            optedIn = false, bypass = false
+        ))
+        assertTrue(VolumePanelSuppressionLease.shouldSuppressController(
+            active = true, panelEnabled = true, overlayReady = true, controllerReady = true,
+            optedIn = true, bypass = false
+        ))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppressController(
+            active = true, panelEnabled = true, overlayReady = false, controllerReady = true,
+            optedIn = true, bypass = false
+        ))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppressController(
+            active = true, panelEnabled = true, overlayReady = true, controllerReady = false,
+            optedIn = true, bypass = false
+        ))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppressController(
+            active = true, panelEnabled = true, overlayReady = true, controllerReady = true,
+            optedIn = true, bypass = true
+        ))
     }
 
     @Test fun enabledLeaseUsesMonotonicRefreshTimestamp() {

@@ -376,7 +376,8 @@ class LightningDspVolumeManagerActivity : BaseActivity() {
                 isEnabled = false
                 Thread({
                     val success = SystemUiVolumePanelOption.set(applicationContext, checked)
-                    val available = success || SystemUiVolumePanelOption.available()
+                    val hookAvailable = SystemUiVolumePanelOption.available()
+                    val canConfigure = SystemUiVolumePanelOption.canConfigure()
                     runOnUiThread {
                         if (!success) {
                             revertingSystemUiPanelSwitch = true
@@ -385,10 +386,10 @@ class LightningDspVolumeManagerActivity : BaseActivity() {
                             Toast.makeText(this@LightningDspVolumeManagerActivity,
                                 R.string.ldsp_vm_systemui_panel_toggle_failed, Toast.LENGTH_LONG).show()
                         }
-                        isEnabled = available || SystemUiVolumePanelOption.requested(applicationContext)
-                        systemUiPanelStatus.setText(if (available) R.string.ldsp_vm_systemui_panel_ready
+                        isEnabled = canConfigure || SystemUiVolumePanelOption.requested(applicationContext)
+                        systemUiPanelStatus.setText(if (hookAvailable) R.string.ldsp_vm_systemui_panel_ready
                             else R.string.ldsp_vm_systemui_panel_unavailable)
-                        systemUiPanelStatus.visibility = if (success && checked) View.GONE else View.VISIBLE
+                        systemUiPanelStatus.visibility = if (success && checked && hookAvailable) View.GONE else View.VISIBLE
                     }
                 }, "LDSP-systemui-panel-toggle").start()
             }
@@ -396,16 +397,17 @@ class LightningDspVolumeManagerActivity : BaseActivity() {
         controls.addView(systemUiPanelSwitch)
         controls.addView(systemUiPanelStatus)
         Thread({
-            val available = SystemUiVolumePanelOption.available()
+            val hookAvailable = SystemUiVolumePanelOption.available()
+            val canConfigure = SystemUiVolumePanelOption.canConfigure()
             val requested = SystemUiVolumePanelOption.requested(applicationContext)
             runOnUiThread {
                 revertingSystemUiPanelSwitch = true
                 systemUiPanelSwitch.isChecked = requested
                 revertingSystemUiPanelSwitch = false
-                systemUiPanelSwitch.isEnabled = available || requested
-                systemUiPanelStatus.setText(if (available) R.string.ldsp_vm_systemui_panel_ready
+                systemUiPanelSwitch.isEnabled = canConfigure || requested
+                systemUiPanelStatus.setText(if (hookAvailable) R.string.ldsp_vm_systemui_panel_ready
                     else R.string.ldsp_vm_systemui_panel_unavailable)
-                systemUiPanelStatus.visibility = if (available && requested) View.GONE else View.VISIBLE
+                systemUiPanelStatus.visibility = if (hookAvailable && requested) View.GONE else View.VISIBLE
             }
         }, "LDSP-systemui-panel-check").start()
         addSection(R.string.ldsp_vm_settings_app_list)

@@ -16,8 +16,8 @@ class LightningDspRootVolumeController private constructor(
     private val previous: Any?,
     descriptor: String,
     volumeChangedTransaction: Int,
-    shouldBypassPanel: () -> Boolean,
-    onShowPanel: () -> Unit
+    shouldSuppressPanel: () -> Boolean,
+    onShowPanel: () -> Boolean
 ) : Closeable {
     private val previousBinder = (previous as? IInterface)?.asBinder()
     private var closed = false
@@ -34,19 +34,17 @@ class LightningDspRootVolumeController private constructor(
                 val stream = data.readInt()
                 val volumeFlags = data.readInt()
                 val showUi = volumeFlags and AudioManager.FLAG_SHOW_UI != 0
-                // Read current per-app policy for each key event; never cache an old foreground app.
-                // Policy failure leaves the platform panel available instead of swallowing the key.
-                val bypass = showUi && runCatching { shouldBypassPanel() }.getOrDefault(true)
-                if (showUi && !bypass) {
-                    // Binder-thread callbacks must only enqueue/emit a host event, not create UI.
-                    // Host failure must not prevent forwarding native controller bookkeeping.
-                    runCatching { onShowPanel() }
-                }
+                // The caller requires explicit opt-in plus a live overlay/controller. Policy
+                // failure leaves the platform panel available instead of swallowing the key.
+                // The callback only enqueues a ready overlay request; Binder never writes UI or pipe I/O.
+                val suppressPanel = showUi &&
+                    runCatching { shouldSuppressPanel() }.getOrDefault(false) &&
+                    runCatching { onShowPanel() }.getOrDefault(false)
                 val forwarded = Parcel.obtain()
                 return try {
                     forwarded.writeInterfaceToken(descriptor)
                     forwarded.writeInt(stream)
-                    forwarded.writeInt(if (bypass) volumeFlags else volumeFlags and AudioManager.FLAG_SHOW_UI.inv())
+                    forwarded.writeInt(if (suppressPanel) volumeFlags and AudioManager.FLAG_SHOW_UI.inv() else volumeFlags)
                     previousBinder?.transact(code, forwarded, reply, flags)
                     true
                 } finally {
@@ -78,8 +76,8 @@ class LightningDspRootVolumeController private constructor(
         /** Fails closed on firmware without a readable controller or matching platform Stub. */
         fun install(
             audio: AudioManager,
-            shouldBypassPanel: () -> Boolean = { false },
-            onShowPanel: () -> Unit
+            shouldSuppressPanel: () -> Boolean = { false },
+            onShowPanel: () -> Boolean
         ): LightningDspRootVolumeController {
             check(android.os.Process.myUid() == 0) { "Root is required for the volume panel" }
             val contract = Class.forName("android.media.IVolumeController")
@@ -101,7 +99,7 @@ class LightningDspRootVolumeController private constructor(
             ).apply { isAccessible = true }
             val previous = get.invoke(audio)
             val controller = LightningDspRootVolumeController(
-                audio, get, set, previous, descriptor, transaction, shouldBypassPanel, onShowPanel
+                audio, get, set, previous, descriptor, transaction, shouldSuppressPanel, onShowPanel
             )
             val proxy = stub.getDeclaredMethod("asInterface", IBinder::class.java)
                 .apply { isAccessible = true }.invoke(null, controller.callback)

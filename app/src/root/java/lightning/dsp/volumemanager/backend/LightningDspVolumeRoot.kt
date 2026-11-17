@@ -72,6 +72,7 @@ object LightningDspVolumeRoot {
         val uid = android.os.Process.myUid()
         check(VolumeBridgeIdentity.privileged(uid)) { "Privileged playback identity required" }
         val wakeups = LinkedBlockingQueue<Unit>(1)
+        val panelRequests = LinkedBlockingQueue<Unit>(1)
         val latestSettings = AtomicReference<String?>(null)
         val operations = SystemVolumeOperationQueue(capacity = 32)
         val rejectedOperations = LinkedBlockingQueue<Long>(32)
@@ -115,6 +116,12 @@ object LightningDspVolumeRoot {
         val snapshots = PlaybackSnapshotGate()
         val replayGuard = SystemVolumeOperationReplayGuard()
         val panelBypass = AtomicBoolean(false)
+        val panelActive = AtomicBoolean(false)
+        val panelEnabled = AtomicBoolean(false)
+        val panelOverlayReady = AtomicBoolean(false)
+        val panelOptedIn = AtomicBoolean(false)
+        val panelControllerReady = AtomicBoolean(false)
+        val panelEventChannelReady = AtomicBoolean(true)
         val remotePanelAllowed = AtomicBoolean(false)
         var panelController: LightningDspRootVolumeController? = null
         var remoteVolumeController: LightningDspRemoteVolumeController? = null
@@ -159,6 +166,14 @@ object LightningDspVolumeRoot {
                 if (hostLease.expired(SystemClock.uptimeMillis())) break
                 wakeups.poll(500, TimeUnit.MILLISECONDS)
                 if (stopRequested.get()) break
+                if (panelRequests.poll() != null) {
+                    output.println("{\"show_panel\":true}")
+                    output.flush()
+                    if (output.checkError()) {
+                        panelEventChannelReady.set(false)
+                        remotePanelAllowed.set(false)
+                    }
+                }
                 var settingsChanged = false
                 latestSettings.getAndSet(null)?.let { raw ->
                     val next = runCatching { JSONObject(raw) }.getOrNull()
@@ -166,17 +181,23 @@ object LightningDspVolumeRoot {
                         settings = next
                         settingsChanged = true
                         panelBypass.set(settings.optBoolean("panel_bypass"))
+                        panelActive.set(settings.optBoolean("activate"))
+                        panelEnabled.set(settings.optBoolean("panel_enabled"))
+                        panelOverlayReady.set(settings.optBoolean("panel_overlay_ready"))
+                        panelOptedIn.set(settings.optBoolean("systemui_panel_opted_in"))
                     }
                 }
-                remotePanelAllowed.set(settings.optBoolean("activate") && settings.optBoolean("panel_enabled"))
+                remotePanelAllowed.set(VolumePanelSuppressionLease.shouldSuppressController(
+                    panelActive.get(), panelEnabled.get(), panelOverlayReady.get(),
+                    panelControllerReady.get() && panelEventChannelReady.get(), panelOptedIn.get(), panelBypass.get()
+                ))
                 // Some SystemUI builds dispatch the stock panel independently of the
-                // registered IVolumeController. Keep a short lease only after a supported
-                // hook is acknowledged and the root-managed overlay is enabled.
+                // generic Binder callback. This extra lease is stricter: it also needs a
+                // live Xposed hook in the current SystemUI process.
                 val shouldSuppressSystemUiPanel = VolumePanelSuppressionLease.shouldSuppress(
-                    uid == 0,
-                    settings.optBoolean("activate"), settings.optBoolean("panel_enabled"),
-                    panelController != null && panelError == null, panelBypass.get(),
-                    settings.optBoolean("systemui_panel_opted_in"), settings.optBoolean("systemui_hook_ready")
+                    uid == 0, panelActive.get(), panelEnabled.get(), panelOverlayReady.get(),
+                    panelControllerReady.get() && panelEventChannelReady.get() && panelError == null, panelBypass.get(),
+                    panelOptedIn.get(), settings.optBoolean("systemui_hook_ready")
                 )
                 val panelLeaseNow = SystemClock.uptimeMillis()
                 if (!panelLeaseWritten || shouldSuppressSystemUiPanel != panelLeaseEnabled ||
@@ -292,11 +313,22 @@ object LightningDspVolumeRoot {
                         panelControllerAttempted = true
                         try {
                             beforePanelMutation?.invoke()
-                            panelController = LightningDspRootVolumeController.install(audio, shouldBypassPanel = { panelBypass.get() }) {
-                                output.println("{\"show_panel\":true}")
-                                output.flush()
-                            }
+                            panelController = LightningDspRootVolumeController.install(audio, shouldSuppressPanel = {
+                                VolumePanelSuppressionLease.shouldSuppressController(
+                                    panelActive.get(), panelEnabled.get(), panelOverlayReady.get(),
+                                    panelControllerReady.get() && panelEventChannelReady.get(),
+                                    panelOptedIn.get(), panelBypass.get()
+                                )
+                            }, onShowPanel = {
+                                panelEventChannelReady.get() && panelOverlayReady.get() &&
+                                    !stopRequested.get() && !hostLease.expired(SystemClock.uptimeMillis()) &&
+                                    panelRequests.offer(Unit).also { enqueued ->
+                                        if (enqueued) wakeups.offer(Unit)
+                                    }
+                            })
+                            panelControllerReady.set(true)
                         } catch (error: Exception) {
+                            panelControllerReady.set(false)
                             panelError = "Volume panel replacement unavailable: ${error.cause?.javaClass?.simpleName ?: error.javaClass.simpleName}"
                             applyError = panelError
                         }
@@ -314,6 +346,8 @@ object LightningDspVolumeRoot {
                         }.getOrNull()
                     }
                 } else {
+                    panelControllerReady.set(false)
+                    remotePanelAllowed.set(false)
                     val remoteCloseError = runCatching { remoteVolumeController?.close() }.exceptionOrNull()
                     if (remoteCloseError == null) {
                         remoteVolumeController = null
@@ -396,6 +430,7 @@ object LightningDspVolumeRoot {
             output.flush()
         } finally {
             remotePanelAllowed.set(false)
+            panelControllerReady.set(false)
             // Do not leave SystemUI's panel suppressed if this root bridge exits.
             runCatching {
                 val properties = Class.forName("android.os.SystemProperties")

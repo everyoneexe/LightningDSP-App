@@ -34,6 +34,7 @@ class SystemUiVolumePanelHookContractTest {
         assertTrue(option.contains("marker in systemUiPids"))
         assertTrue(lease.contains("uptimeMillis - refreshedAt <= TTL_MS"))
         assertTrue(root.contains("settings.optBoolean(\"systemui_panel_opted_in\")"))
+        assertTrue(root.contains("settings.optBoolean(\"panel_overlay_ready\")"))
         assertTrue(root.contains("settings.optBoolean(\"systemui_hook_ready\")"))
         assertTrue(root.contains("VolumePanelSuppressionLease.PROPERTY, \"0\")"))
     }

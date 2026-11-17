@@ -6,9 +6,14 @@ internal object VolumePanelSuppressionLease {
     const val REFRESH_INTERVAL_MS = 2_000L
     const val TTL_MS = 6_000L
 
-    fun shouldSuppress(root: Boolean, active: Boolean, panelEnabled: Boolean, controllerReady: Boolean, bypass: Boolean,
-                       optedIn: Boolean = false, hookReady: Boolean = false): Boolean =
-        root && active && panelEnabled && controllerReady && optedIn && hookReady && !bypass
+    fun shouldSuppress(root: Boolean, active: Boolean, panelEnabled: Boolean, overlayReady: Boolean,
+                       controllerReady: Boolean, bypass: Boolean, optedIn: Boolean = false,
+                       hookReady: Boolean = false): Boolean =
+        root && active && panelEnabled && overlayReady && controllerReady && optedIn && hookReady && !bypass
+
+    fun shouldSuppressController(active: Boolean, panelEnabled: Boolean, overlayReady: Boolean,
+                                 controllerReady: Boolean, optedIn: Boolean, bypass: Boolean): Boolean =
+        active && panelEnabled && overlayReady && controllerReady && optedIn && !bypass
 
     fun propertyValue(enabled: Boolean, uptimeMillis: Long): String =
         if (enabled && uptimeMillis > 0L) uptimeMillis.toString() else "0"

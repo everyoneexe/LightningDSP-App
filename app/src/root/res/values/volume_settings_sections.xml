@@ -22,7 +22,7 @@
     <string name="ldsp_vm_monochrome_dsp_bar" tools:ignore="MissingTranslation">Enable monochrome LightningDSP bar</string>
     <string name="ldsp_vm_settings_systemui_panel" tools:ignore="MissingTranslation">SystemUI volume panel</string>
     <string name="ldsp_vm_suppress_systemui_panel" tools:ignore="MissingTranslation">Use LightningDSP instead of the stock volume panel</string>
-    <string name="ldsp_vm_systemui_panel_ready" tools:ignore="MissingTranslation">SystemUI hook is live in Vector/LSPosed. Suppression is temporary and only active while the root volume panel is ready.</string>
-    <string name="ldsp_vm_systemui_panel_unavailable" tools:ignore="MissingTranslation">Unavailable: enable LightningDSP in Vector/LSPosed with SystemUI scope, then restart SystemUI. Unsupported SystemUI variants keep their stock panel.</string>
-    <string name="ldsp_vm_systemui_panel_toggle_failed" tools:ignore="MissingTranslation">Could not verify the live SystemUI hook. Stock volume controls remain available.</string>
+    <string name="ldsp_vm_systemui_panel_ready" tools:ignore="MissingTranslation">SystemUI hook is live in Vector/LSPosed. Suppression only runs while the root controller and LightningDSP overlay are ready.</string>
+    <string name="ldsp_vm_systemui_panel_unavailable" tools:ignore="MissingTranslation">No live SystemUI hook detected. The generic root controller may still replace the panel when its platform contract and overlay are ready; otherwise stock controls remain.</string>
+    <string name="ldsp_vm_systemui_panel_toggle_failed" tools:ignore="MissingTranslation">Could not save the SystemUI panel option. Stock volume controls remain available.</string>
 </resources>

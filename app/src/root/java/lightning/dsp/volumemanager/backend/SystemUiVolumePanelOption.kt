@@ -15,6 +15,9 @@ object SystemUiVolumePanelOption {
     fun requested(context: Context): Boolean = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
         .getBoolean(KEY, false)
 
+    /** Root presence allows the generic IVolumeController path to serve unsupported SystemUI variants. */
+    fun canConfigure(): Boolean = RootShellImpl.hasRootShell()
+
     /** A PID match distinguishes an active SystemUI hook from installation or stale state. */
     fun available(): Boolean {
         if (!RootShellImpl.hasRootShell()) return false
@@ -24,9 +27,8 @@ object SystemUiVolumePanelOption {
         return result.isSuccess && !marker.isNullOrEmpty() && marker in systemUiPids
     }
 
-    /** Persist the choice only after the live hook and volatile runtime flag are verified. */
+    /** Persist the choice only after root verifies the volatile runtime flag. */
     fun set(context: Context, enabled: Boolean): Boolean {
-        if (enabled && !available()) return false
         if (!RootShellImpl.hasRootShell()) return false
         val value = if (enabled) "1" else "0"
         val result = Shell.cmd("setprop $ENABLED_PROPERTY $value", "getprop $ENABLED_PROPERTY").exec()

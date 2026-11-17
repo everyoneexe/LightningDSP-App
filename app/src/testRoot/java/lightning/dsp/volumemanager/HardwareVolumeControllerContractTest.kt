@@ -10,6 +10,8 @@ class HardwareVolumeControllerContractTest {
         .first { File(it, "src/root/AndroidManifest.xml").isFile }
     private val controller = File(app,
         "src/root/java/lightning/dsp/volumemanager/backend/LightningDspRootVolumeController.kt").readText()
+    private val root = File(app,
+        "src/root/java/lightning/dsp/volumemanager/backend/LightningDspVolumeRoot.kt").readText()
 
     @Test fun replacementReportsAdjustmentReadinessAfterOwnershipIsVerified() {
         val lookup = controller.indexOf("\"notifyVolumeControllerVisible\", contract")
@@ -27,11 +29,18 @@ class HardwareVolumeControllerContractTest {
         assertFalse(callback.contains("adjustSuggestedStreamVolume"))
         assertFalse(callback.contains("adjustStreamVolume"))
         assertFalse(callback.contains("setStreamVolume"))
+        assertTrue(callback.contains("showUi &&"))
+        assertTrue(callback.contains("runCatching { shouldSuppressPanel() }.getOrDefault(false)"))
+        assertTrue(callback.contains("runCatching { onShowPanel() }.getOrDefault(false)"))
+        assertTrue(callback.contains("onShowPanel: () -> Boolean"))
         assertTrue(callback.contains("previousBinder?.transact(code, forwarded, reply, flags)"))
         assertTrue(callback.contains("volumeFlags and AudioManager.FLAG_SHOW_UI.inv()"))
-        assertTrue(callback.contains("if (bypass) volumeFlags"))
+        assertTrue(callback.contains("if (suppressPanel) volumeFlags and AudioManager.FLAG_SHOW_UI.inv() else volumeFlags"))
         assertTrue("Keep safe-volume/dose warnings and vendor callbacks intact",
             callback.contains("return previousBinder.transact(code, data, reply, flags)"))
+        assertTrue("Only suppress after overlay readiness and a bounded event enqueue",
+            root.contains("panelOverlayReady.get()") && root.contains("panelRequests.offer(Unit)"))
+        assertTrue("Pipe failure must fail open for subsequent volume events", root.contains("output.checkError()"))
     }
 
     @Test fun restoreDoesNotClobberANewerOwnerOrLeaveVisibilityInItsState() {
