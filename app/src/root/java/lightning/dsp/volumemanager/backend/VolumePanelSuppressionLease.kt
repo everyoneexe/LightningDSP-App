@@ -6,10 +6,13 @@ internal object VolumePanelSuppressionLease {
     const val REFRESH_INTERVAL_MS = 2_000L
     const val TTL_MS = 6_000L
 
-    fun shouldSuppress(root: Boolean, active: Boolean, panelEnabled: Boolean, overlayReady: Boolean,
-                       controllerReady: Boolean, bypass: Boolean, optedIn: Boolean = false,
-                       hookReady: Boolean = false): Boolean =
-        root && active && panelEnabled && overlayReady && controllerReady && optedIn && hookReady && !bypass
+    /**
+     * The direct SystemUI hook may suppress while its embedded surface is being rebuilt.
+     * It queues the request and replays the original stock callback if attachment fails.
+     */
+    fun shouldSuppressSystemUiHook(root: Boolean, active: Boolean, panelEnabled: Boolean,
+                                   bypass: Boolean, optedIn: Boolean, hookReady: Boolean): Boolean =
+        root && active && panelEnabled && optedIn && hookReady && !bypass
 
     fun shouldSuppressController(active: Boolean, panelEnabled: Boolean, overlayReady: Boolean,
                                  controllerReady: Boolean, optedIn: Boolean, bypass: Boolean): Boolean =

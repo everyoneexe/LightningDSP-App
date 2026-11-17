@@ -33,6 +33,10 @@ class SystemUiVolumePanelHookContractTest {
         assertTrue(hook.contains("XposedBridge.hookMethod(method"))
         assertTrue(hook.contains("if (!suppressionActive()"))
         assertTrue(hook.contains("param.args[1] = flags & ~FLAG_SHOW_UI"))
+        assertTrue(hook.indexOf("if (!suppressionActive())") <
+            hook.indexOf("if (!SystemUiVolumeSurfaceHost.isReady())"))
+        assertTrue(hook.contains("Queue this request through the bounded surface attach"))
+        assertTrue(hook.contains("SystemUiVolumeSurfaceHost.showFromVolumeEvent()"))
         assertTrue(root.contains("uid == 0"))
         assertTrue(hook.contains("now - refreshedAt <= LEASE_TTL_MS"))
         assertTrue(hook.contains("getBoolean\", ENABLED_PROPERTY, false"))
@@ -42,6 +46,7 @@ class SystemUiVolumePanelHookContractTest {
         assertTrue(lease.contains("uptimeMillis - refreshedAt <= TTL_MS"))
         assertTrue(root.contains("settings.optBoolean(\"systemui_panel_opted_in\")"))
         assertTrue(root.contains("settings.optBoolean(\"panel_overlay_ready\")"))
+        assertTrue(root.contains("shouldSuppressSystemUiHook"))
         assertTrue(root.contains("SystemUiHookIdentity.available(context)"))
         assertTrue(root.contains("panelOptedIn.get(), liveSystemUiHook"))
         assertTrue(root.contains("VolumePanelSuppressionLease.PROPERTY, \"0\")"))

@@ -223,7 +223,7 @@ class VolumePanelSurfaceService : Service() {
                 setViewTreeSavedStateRegistryOwner(current)
                 setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
                 setContent {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         if (current.locked) LockedStreamPanel(panelContext, current.streamRevision)
                         else LightningVolumeFloatingPanel(current.state, onClose = {
                             runCatching { callback.dismiss(generation) }

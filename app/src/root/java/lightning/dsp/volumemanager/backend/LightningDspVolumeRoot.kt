@@ -207,13 +207,13 @@ object LightningDspVolumeRoot {
                     panelActive.get(), panelEnabled.get(), panelOverlayReady.get(),
                     panelControllerReady.get() && panelEventChannelReady.get(), panelOptedIn.get(), panelBypass.get()
                 ))
-                // Some SystemUI builds dispatch the stock panel independently of the
-                // generic Binder callback. This extra lease is stricter: it also needs a
-                // live Xposed hook in the current SystemUI process.
-                val shouldSuppressSystemUiPanel = VolumePanelSuppressionLease.shouldSuppress(
-                    uid == 0, panelActive.get(), panelEnabled.get(), panelOverlayReady.get(),
-                    panelControllerReady.get() && panelEventChannelReady.get() && panelError == null, panelBypass.get(),
-                    panelOptedIn.get(), liveSystemUiHook
+                // The SystemUI hook owns a bounded pending-show path while its embedded
+                // surface is rebuilt (for example across keyguard transitions). If attach
+                // fails it replays the original stock callback; it does not need a ready
+                // surface lease to suppress the one event that requested that rebuild.
+                val shouldSuppressSystemUiPanel = VolumePanelSuppressionLease.shouldSuppressSystemUiHook(
+                    uid == 0, panelActive.get(), panelEnabled.get(),
+                    panelBypass.get(), panelOptedIn.get(), liveSystemUiHook
                 )
                 val panelLeaseNow = SystemClock.uptimeMillis()
                 if (!panelLeaseWritten || shouldSuppressSystemUiPanel != panelLeaseEnabled ||

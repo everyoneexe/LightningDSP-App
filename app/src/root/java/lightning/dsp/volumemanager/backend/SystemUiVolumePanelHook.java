@@ -130,11 +130,20 @@ public final class SystemUiVolumePanelHook implements IXposedHookLoadPackage {
                             }));
                         }
                         int flags = (Integer) param.args[1];
-                        if (!SystemUiVolumeSurfaceHost.isReady()) {
-                            if ((flags & FLAG_SHOW_UI) != 0) SystemUiVolumeSurfaceHost.warmFromVolumeEvent();
-                            return; // The first event keeps stock UI; only later ready events may suppress it.
+                        if (!suppressionActive()) {
+                            if (!SystemUiVolumeSurfaceHost.isReady() && (flags & FLAG_SHOW_UI) != 0)
+                                SystemUiVolumeSurfaceHost.warmFromVolumeEvent();
+                            return;
                         }
-                        if (!suppressionActive()) return;
+                        if (!SystemUiVolumeSurfaceHost.isReady()) {
+                            if ((flags & FLAG_SHOW_UI) != 0) {
+                                // Queue this request through the bounded surface attach. On
+                                // failure the host replays this exact stock callback once.
+                                SystemUiVolumeSurfaceHost.showFromVolumeEvent();
+                                param.args[1] = flags & ~FLAG_SHOW_UI;
+                            }
+                            return;
+                        }
                         if ((flags & FLAG_SHOW_UI) != 0) {
                             SystemUiVolumeSurfaceHost.showFromVolumeEvent();
                             param.args[1] = flags & ~FLAG_SHOW_UI;

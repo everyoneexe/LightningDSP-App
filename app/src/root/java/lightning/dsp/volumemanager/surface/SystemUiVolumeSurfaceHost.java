@@ -16,6 +16,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -40,6 +41,7 @@ public final class SystemUiVolumeSurfaceHost {
     private static final long IDLE_MS = 3_300L;
     private static final long FADE_MS = 500L;
     private static final long REQUEST_TIMEOUT_MS = 2_000L;
+    private static final long BIND_RETRY_MS = 250L;
     private static final long HEARTBEAT_MS = 2_000L;
     private static volatile SystemUiVolumeSurfaceHost instance;
     private static volatile Runnable stockFallback;
@@ -111,15 +113,10 @@ public final class SystemUiVolumeSurfaceHost {
         if (host != null) host.main.post(host::show);
     }
 
-    /** Prepare only: the event that found an unavailable surface must retain its stock UI. */
+    /** Warm an idle replacement surface without requesting that it be shown. */
     public static void warmFromVolumeEvent() {
         SystemUiVolumeSurfaceHost host = instance;
-        if (host != null) host.main.post(() -> {
-            if (!host.ready && host.optedIn()) {
-                host.requestedShow = false;
-                host.prepare();
-            }
-        });
+        if (host != null) host.main.post(() -> { if (!host.ready && host.optedIn()) host.prepare(); });
     }
 
     @SuppressLint("MissingPermission") // Runs under SystemUI's UID, which owns the keyguard-lock listener permission.
@@ -148,10 +145,19 @@ public final class SystemUiVolumeSurfaceHost {
         state.addAction("android.intent.action.USER_SWITCHED");
         BroadcastReceiver stateReceiver = new BroadcastReceiver() {
             @Override public void onReceive(Context unused, Intent intent) {
-                // Remove the old surface before any privacy/display transition; never unlock keyguard.
-                stop(false);
-                if (!Intent.ACTION_SCREEN_OFF.equals(intent.getAction()) &&
-                        !"android.intent.action.USER_SWITCHED".equals(intent.getAction()) && optedIn()) prepare();
+                // Remove stale content before privacy/display changes, but coalesce the
+                // overlapping SCREEN_ON/USER_PRESENT/keyguard notifications.
+                String action = intent.getAction();
+                boolean userSwitch = "android.intent.action.USER_SWITCHED".equals(action);
+                boolean screenOff = Intent.ACTION_SCREEN_OFF.equals(action);
+                boolean configurationChanged = Intent.ACTION_CONFIGURATION_CHANGED.equals(action);
+                boolean presentationChanged = window != null && renderingLocked != presentationLocked();
+                if (screenOff || userSwitch || configurationChanged || presentationChanged) {
+                    boolean pendingShow = !userSwitch && requestedShow;
+                    stop(false);
+                    requestedShow = pendingShow;
+                }
+                if (!screenOff && !userSwitch && optedIn() && window == null) prepare();
             }
         };
         if (Build.VERSION.SDK_INT >= 33)
@@ -164,7 +170,9 @@ public final class SystemUiVolumeSurfaceHost {
                     listenerLocked = locked;
                     if (window != null && ((locked && !renderingLocked) ||
                             renderingLocked != presentationLocked())) {
+                        boolean pendingShow = requestedShow;
                         stop(false);
+                        requestedShow = pendingShow;
                         if (optedIn()) prepare();
                     }
                 });
@@ -188,8 +196,16 @@ public final class SystemUiVolumeSurfaceHost {
         } catch (Throwable ignored) { return false; }
     }
 
+    private boolean displayInteractive() {
+        PowerManager power = context.getSystemService(PowerManager.class);
+        return power == null || power.isInteractive();
+    }
+
     private void prepare() {
         if (!optedIn()) { stop(false); return; }
+        // SurfaceControlViewHost cannot complete its first draw while the display sleeps.
+        // Keep a queued show request and retry from SCREEN_ON instead of timing out to stock.
+        if (!displayInteractive()) return;
         if (window != null && renderingLocked != presentationLocked()) {
             boolean pendingShow = requestedShow;
             releaseWindow();
@@ -198,7 +214,12 @@ public final class SystemUiVolumeSurfaceHost {
         if (service != null) { attachWindow(); return; }
         if (bound) return;
         long now = SystemClock.uptimeMillis();
-        if (now - lastBindAttempt < REQUEST_TIMEOUT_MS) { fail(); return; }
+        long retryIn = REQUEST_TIMEOUT_MS - (now - lastBindAttempt);
+        if (lastBindAttempt > 0 && retryIn > 0) {
+            main.removeCallbacks(bindRetry);
+            main.postDelayed(bindRetry, Math.min(BIND_RETRY_MS, retryIn));
+            return;
+        }
         lastBindAttempt = now;
         try {
             appUid = context.getPackageManager().getApplicationInfo(APP, 0).uid;
@@ -211,6 +232,7 @@ public final class SystemUiVolumeSurfaceHost {
     }
 
     private final Runnable bindTimeout = () -> { if (service == null || !ready) fail(); };
+    private final Runnable bindRetry = this::prepare;
     private final ServiceConnection connection = new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName name, IBinder binder) {
             if (!bound || !APP.equals(name.getPackageName()) ||
@@ -286,13 +308,30 @@ public final class SystemUiVolumeSurfaceHost {
     }
 
     private final SurfaceHolder.Callback surfaceCallbacks = new SurfaceHolder.Callback() {
-        @Override public void surfaceCreated(SurfaceHolder holder) { requestSurface(); }
+        @Override public void surfaceCreated(SurfaceHolder holder) {
+            if (!optedIn()) return;
+            if (renderingLocked != presentationLocked()) {
+                boolean pendingShow = requestedShow;
+                stop(false);
+                requestedShow = pendingShow;
+                prepare();
+                return;
+            }
+            requestSurface();
+        }
         @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
             if (!attaching) requestSurface();
         }
         @Override public void surfaceDestroyed(SurfaceHolder holder) {
+            if (surface == null) return; // releaseWindow already invalidated this holder.
             ready = false;
-            heartbeat(false);
+            attaching = false;
+            long destroyedGeneration = generation++;
+            main.removeCallbacks(heartbeat);
+            if (service != null) {
+                try { service.heartbeat(owner, destroyedGeneration, false, renderingLocked); }
+                catch (Throwable ignored) { main.post(SystemUiVolumeSurfaceHost.this::fail); }
+            }
         }
     };
 
@@ -323,6 +362,7 @@ public final class SystemUiVolumeSurfaceHost {
                 try {
                     // SurfaceView takes ownership of the transferred SurfacePackage.
                     surface.setChildSurfacePackage(result);
+                    attaching = false;
                     ready = surface.isAttachedToWindow();
                     if (!ready) { fail(); return; }
                     main.removeCallbacks(bindTimeout);
@@ -442,6 +482,7 @@ public final class SystemUiVolumeSurfaceHost {
             try { context.unbindService(connection); } catch (Throwable ignored) { }
         }
         main.removeCallbacks(bindTimeout);
+        main.removeCallbacks(bindRetry);
         if (fallback && wasRequested) {
             Runnable original = stockFallback;
             if (original != null) {

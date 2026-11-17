@@ -42,9 +42,15 @@ class SystemUiVolumeSurfaceHostContractTest {
         assertTrue(host.contains("if (result != null) result.release()"))
         assertTrue(hook.contains("!SystemUiVolumeSurfaceHost.isReady()"))
         assertTrue(hook.contains("SystemUiVolumeSurfaceHost.warmFromVolumeEvent()"))
-        assertTrue(host.contains("host.requestedShow = false"))
+        assertTrue(host.contains("if (!host.ready && host.optedIn()) host.prepare();"))
         assertTrue(host.contains("Intent.ACTION_SCREEN_ON"))
-        assertTrue(host.contains("&& optedIn()) prepare()"))
+        assertTrue(host.contains("PowerManager power = context.getSystemService(PowerManager.class)"))
+        assertTrue(host.contains("requestedShow = pendingShow"))
+        assertTrue(host.contains("main.postDelayed(bindRetry"))
+        assertTrue(host.contains("long destroyedGeneration = generation++"))
+        assertTrue(host.contains("attaching = false;\n            long destroyedGeneration"))
+        assertTrue(host.contains("if (!screenOff && !userSwitch && optedIn() && window == null) prepare();"))
+        assertTrue(host.contains("if (screenOff || userSwitch || configurationChanged || presentationChanged)"))
     }
 
     @Test fun privacyTransitionsRemovePreviousContentAndUnsupportedListenersRestrictPresentation() {
@@ -55,6 +61,13 @@ class SystemUiVolumeSurfaceHostContractTest {
         assertTrue(host.contains("locked != renderingLocked || renderingLocked != presentationLocked()"))
         assertTrue(host.contains("main.removeCallbacks(heartbeat)"))
         assertTrue(host.contains("windows.removeViewImmediate(oldWindow)"))
+    }
+
+    @Test fun embeddedPanelStaysCenteredAsItsContentHeightChanges() {
+        val service = File(app,
+            "src/root/java/lightning/dsp/volumemanager/surface/VolumePanelSurfaceService.kt").readText()
+        assertTrue(service.contains("Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center)"))
+        assertFalse(service.contains("contentAlignment = Alignment.TopCenter"))
     }
 
     @Test fun failedSurfaceReplaysOnlyVerifiedStockCallbackAndDragKeepsPanelAlive() {

@@ -7,23 +7,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VolumePanelSuppressionLeaseTest {
-    @Test fun suppressionRequiresExplicitOptInAndLiveSystemUiHook() {
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, true, true, true, false))
-        assertTrue(VolumePanelSuppressionLease.shouldSuppress(
-            true, true, true, true, true, false, optedIn = true, hookReady = true
+    @Test fun systemUiHookCanQueueDuringReattachOnlyForLiveOptedInManager() {
+        assertTrue(VolumePanelSuppressionLease.shouldSuppressSystemUiHook(
+            root = true, active = true, panelEnabled = true,
+            bypass = false, optedIn = true, hookReady = true
         ))
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(
-            true, true, true, true, true, false, optedIn = false, hookReady = true
+        assertFalse(VolumePanelSuppressionLease.shouldSuppressSystemUiHook(
+            root = false, active = true, panelEnabled = true,
+            bypass = false, optedIn = true, hookReady = true
         ))
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(
-            true, true, true, true, true, false, optedIn = true, hookReady = false
+        assertFalse(VolumePanelSuppressionLease.shouldSuppressSystemUiHook(
+            root = true, active = false, panelEnabled = true,
+            bypass = false, optedIn = true, hookReady = true
         ))
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, true, false, true, false, true, true))
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(false, true, true, true, true, false, true, true))
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, false, true, true, true, false, true, true))
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, false, true, true, false, true, true))
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, true, true, false, false, true, true))
-        assertFalse(VolumePanelSuppressionLease.shouldSuppress(true, true, true, true, true, true, true, true))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppressSystemUiHook(
+            root = true, active = true, panelEnabled = false,
+            bypass = false, optedIn = true, hookReady = true
+        ))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppressSystemUiHook(
+            root = true, active = true, panelEnabled = true,
+            bypass = false, optedIn = false, hookReady = true
+        ))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppressSystemUiHook(
+            root = true, active = true, panelEnabled = true,
+            bypass = false, optedIn = true, hookReady = false
+        ))
+        assertFalse(VolumePanelSuppressionLease.shouldSuppressSystemUiHook(
+            root = true, active = true, panelEnabled = true,
+            bypass = true, optedIn = true, hookReady = true
+        ))
     }
 
     @Test fun genericControllerKeepsStockPanelUnlessOptInAndOverlayAreLive() {
