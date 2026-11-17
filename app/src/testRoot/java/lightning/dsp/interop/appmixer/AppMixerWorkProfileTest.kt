@@ -38,12 +38,12 @@ class AppMixerWorkProfileTest {
         assertTrue(source("AppMixerRoutingExperiment").contains("for (user in users.sorted())"))
     }
 
-    @Test fun unavailableWorkInventoryFallsBackToPersonalFusionCoverage() {
+    @Test fun workProfileInventoryUsesCompleteRootMembershipAndKeepsCoverageStatusVisible() {
         val app = sequenceOf(File("."), File("app")).first { File(it, "src/root").isDirectory }
         val inventory = File(app, "src/root/java/lightning/dsp/interop/appmixer/AppMixerUidInventory.kt").readText()
         val controller = File(app, "src/root/java/lightning/dsp/interop/appmixer/AppMixerModeController.kt").readText()
-        assertTrue(inventory.contains("val apps = if (workIncluded) personalApps + workInventory.orEmpty() else personalApps"))
-        assertTrue(inventory.contains("else setOf(currentUser)"))
+        assertTrue(inventory.contains("ProcessBuilder(\"su\", \"-c\", \"cmd package list packages -U --user \$userId\")"))
+        assertTrue(inventory.contains("val users = if (workIncluded) workInventory!!.userIds + currentUser else setOf(currentUser)"))
         assertTrue(inventory.contains("workProfileIncluded: Boolean"))
         assertTrue(controller.contains("work-profile audio is excluded because its app inventory is unavailable"))
         assertTrue(controller.contains("nextWorkProfileIncluded"))
