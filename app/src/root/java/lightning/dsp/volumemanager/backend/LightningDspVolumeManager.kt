@@ -901,10 +901,8 @@ object LightningDspVolumeManager {
                 preferences.getBoolean("ignore_buttons:${identityKey(it)}", false)
         }.forEach { ignored.put(it.packageName) }
         val systemUiPanelOptedIn = SystemUiVolumePanelOption.requested(context)
-        val systemUiHookReady = systemUiPanelOptedIn && SystemUiVolumePanelOption.available()
         val rules = JSONObject().put("activate", output.sideEffectsAuthorized).put("foreground_known", foregroundPackage != null).put("ignored_packages", ignored).put("panel_enabled", isEnabled && Settings.canDrawOverlays(context))
             .put("systemui_panel_opted_in", systemUiPanelOptedIn)
-            .put("systemui_hook_ready", systemUiHookReady)
             .put("panel_overlay_ready", overlayReady ||
                 (overlayError == null && isEnabled && Settings.canDrawOverlays(context)))
             .put("panel_bypass", foregroundPackage?.let { preferences.getBoolean("ignore_buttons:$it", false) } ?: false)

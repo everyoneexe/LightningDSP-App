@@ -123,6 +123,8 @@ object LightningDspVolumeRoot {
         val panelControllerReady = AtomicBoolean(false)
         val panelEventChannelReady = AtomicBoolean(true)
         val remotePanelAllowed = AtomicBoolean(false)
+        var lastHookCheckAt = -VolumePanelSuppressionLease.REFRESH_INTERVAL_MS
+        var liveSystemUiHook = false
         var panelController: LightningDspRootVolumeController? = null
         var remoteVolumeController: LightningDspRemoteVolumeController? = null
         var remoteVolumeAttempted = false
@@ -187,6 +189,15 @@ object LightningDspVolumeRoot {
                         panelOptedIn.set(settings.optBoolean("systemui_panel_opted_in"))
                     }
                 }
+                // Registration can be replaced by SystemUI after startup. A stale object
+                // must not keep the independent SystemUI hook suppressing the stock panel.
+                panelControllerReady.set(runCatching { panelController?.ownsRegistration() == true }
+                    .getOrDefault(false))
+                val hookCheckAt = SystemClock.uptimeMillis()
+                if (hookCheckAt - lastHookCheckAt >= VolumePanelSuppressionLease.REFRESH_INTERVAL_MS) {
+                    liveSystemUiHook = uid == 0 && panelOptedIn.get() && SystemUiHookIdentity.available(context)
+                    lastHookCheckAt = hookCheckAt
+                }
                 remotePanelAllowed.set(VolumePanelSuppressionLease.shouldSuppressController(
                     panelActive.get(), panelEnabled.get(), panelOverlayReady.get(),
                     panelControllerReady.get() && panelEventChannelReady.get(), panelOptedIn.get(), panelBypass.get()
@@ -197,7 +208,7 @@ object LightningDspVolumeRoot {
                 val shouldSuppressSystemUiPanel = VolumePanelSuppressionLease.shouldSuppress(
                     uid == 0, panelActive.get(), panelEnabled.get(), panelOverlayReady.get(),
                     panelControllerReady.get() && panelEventChannelReady.get() && panelError == null, panelBypass.get(),
-                    panelOptedIn.get(), settings.optBoolean("systemui_hook_ready")
+                    panelOptedIn.get(), liveSystemUiHook
                 )
                 val panelLeaseNow = SystemClock.uptimeMillis()
                 if (!panelLeaseWritten || shouldSuppressSystemUiPanel != panelLeaseEnabled ||

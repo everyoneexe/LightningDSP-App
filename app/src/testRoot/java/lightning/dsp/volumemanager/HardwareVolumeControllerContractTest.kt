@@ -50,4 +50,13 @@ class HardwareVolumeControllerContractTest {
         assertTrue(close.contains("if (closed) return"))
         assertTrue(controller.contains("check(android.os.Process.myUid() == 0)"))
     }
+
+    @Test fun staleRegistrationCannotKeepSystemUiSuppressed() {
+        assertTrue(controller.contains("fun ownsRegistration(): Boolean = !closed &&"))
+        assertTrue(root.contains("panelController?.ownsRegistration() == true"))
+        val check = root.indexOf("panelController?.ownsRegistration() == true")
+        val lease = root.indexOf("val shouldSuppressSystemUiPanel")
+        assertTrue(check >= 0 && check < lease)
+        assertTrue(root.contains("lastHookCheckAt >= VolumePanelSuppressionLease.REFRESH_INTERVAL_MS"))
+    }
 }

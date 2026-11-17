@@ -61,6 +61,11 @@ class LightningDspRootVolumeController private constructor(
         }
     }
 
+    /** Queried by the control loop, never from a Binder volume callback. */
+    @Synchronized
+    fun ownsRegistration(): Boolean = !closed &&
+        (getController.invoke(audio) as? IInterface)?.asBinder() == callback
+
     /** Do not overwrite a controller installed by SystemUI or another owner after ours. */
     @Synchronized
     override fun close() {
