@@ -9,15 +9,15 @@ class AppVolumeOrderWiringTest {
     private val app = sequenceOf(File("."), File("app")).first { File(it, "src/root/AndroidManifest.xml").isFile }
     private fun source(name: String) = File(app, "src/root/java/lightning/dsp/volumemanager/ui/$name.kt").readText()
 
-    @Test fun bothPanelsComputeTheirRowsFromObservableOrderBeforeLazyContent() {
+    @Test fun bothPanelsComputeTheirRowsFromObservableOrderBeforeRendering() {
         val ui = source("LightningVolumeComposeUi")
         val manager = ui.substringAfter("internal fun LightningVolumeManagerScreen(")
             .substringBefore("internal fun LightningVolumeFloatingPanel(")
         val floating = ui.substringAfter("internal fun LightningVolumeFloatingPanel(")
             .substringBefore("private const val FLOATING_HIDDEN_PREFIX")
-        for (panel in listOf(manager, floating)) {
+        for ((panel, contentMarker) in listOf(manager to "LazyColumn(", floating to "activeApps.forEach")) {
             assertTrue(panel.contains("val savedAppOrder by rememberAppVolumeOrder(panelPrefs)"))
-            assertTrue(panel.indexOf("val activeApps =") in 0 until panel.indexOf("LazyColumn("))
+            assertTrue(panel.indexOf("val activeApps =") in 0 until panel.indexOf(contentMarker))
             assertFalse(panel.contains("getString(\"order_active\""))
             assertFalse(panel.contains("getString(\"order_inactive\""))
         }

@@ -49,7 +49,7 @@ class SurfaceSessionPolicyTest {
         assertFalse(SurfaceSessionPolicy.mayPresent(false, true, true, true))
     }
 
-    @Test fun exportedBridgeAuthenticatesBeforePostingAndLockedContentHasNoPrivateControls() {
+    @Test fun exportedBridgeAuthenticatesAndLockscreenUsesTheSharedFloatingPanel() {
         val app = sequenceOf(File("."), File("app")).first { File(it, "src/root/AndroidManifest.xml").isFile }
         val manifest = File(app, "src/root/AndroidManifest.xml").readText()
         val host = File(app,
@@ -74,18 +74,18 @@ class SurfaceSessionPolicyTest {
         assertTrue(service.contains("idle.remainingMillis(SystemClock.uptimeMillis()) == null"))
         assertTrue(service.contains("callback.interaction(generation, engaged)"))
         assertTrue(service.contains("VolumePanelSurfaceClient.clear(current.owner, current.generation)"))
-        assertTrue(service.contains("LightningVolumeLockedPanel(current.streamRevision)"))
+        assertTrue(service.contains("LightningVolumeFloatingPanel(current.state"))
+        assertTrue(service.contains("val stateObserver = Observer<VolumeManagerState>"))
+        assertTrue(service.contains("LightningDspVolumeManager.state.observeForever(stateObserver)"))
         assertTrue(service.contains("callback.surfaceSizeChanged(generation, width, height)"))
         assertTrue(service.contains("SurfaceSessionPolicy.validRelayout(width, height, current.maxWidth, current.maxHeight)"))
         val ui = File(app, "src/root/java/lightning/dsp/volumemanager/ui/LightningVolumeComposeUi.kt").readText()
-        val locked = ui.substringAfter("internal fun LightningVolumeLockedPanel").substringBefore("private const val FLOATING_HIDDEN_PREFIX")
-        assertTrue(locked.contains("AudioManager.STREAM_MUSIC"))
-        assertTrue(locked.contains("AudioManager.STREAM_RING"))
-        assertTrue(locked.contains("AudioManager.STREAM_ALARM"))
-        assertFalse(locked.contains("AudioManager.STREAM_VOICE_CALL"))
-        assertFalse(locked.contains("LightningVolumeFloatingPanel"))
-        assertFalse(locked.contains("VolumeManagerState"))
-        assertFalse(locked.contains("startActivity"))
-        assertFalse(locked.contains("show_session_dsp_controls"))
+        val panel = ui.substringAfter("internal fun LightningVolumeFloatingPanel").substringBefore("private const val FLOATING_HIDDEN_PREFIX")
+        assertTrue(panel.contains(".verticalScroll(rememberScrollState())"))
+        assertTrue(panel.contains("if (showDspCard && state.enabled)"))
+        assertTrue(panel.contains("SessionDspButtonVisibilityPolicy.shouldShow"))
+        assertTrue(panel.contains("it.active || (showMediaButtons && it.retainedPausedMedia)"))
+        assertTrue(panel.contains("SystemVolumeControls(context, compact = true"))
+        assertFalse(panel.contains("LazyColumn("))
     }
 }

@@ -822,85 +822,26 @@ internal fun LightningVolumeFloatingPanel(
             color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
             contentColor = MaterialTheme.colorScheme.onSurface
         ) {
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth().heightIn(max = maxHeight.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+            Column(
+                modifier = Modifier.fillMaxWidth()
+                    .heightIn(max = maxHeight.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 if (showDspCard && state.enabled) {
-                    item(key = "dsp_card") {
-                        DspCard(onOpenEffect = onClose, floating = true, floatingLightTheme = !dark,
-                            onDspIconClick = {
-                                appDspButtonsRevealed = SessionDspButtonVisibilityPolicy.onIconClick(
-                                    perAppDspMode, showSessionDspButtons, alwaysShowSessionDspButtons, appDspButtonsRevealed)
-                            })
-                    }
+                    DspCard(onOpenEffect = onClose, floating = true, floatingLightTheme = !dark,
+                        onDspIconClick = {
+                            appDspButtonsRevealed = SessionDspButtonVisibilityPolicy.onIconClick(
+                                perAppDspMode, showSessionDspButtons, alwaysShowSessionDspButtons, appDspButtonsRevealed)
+                        })
                 }
-                item(key = "system_controls") {
-                    SystemVolumeControls(context, compact = true, showVisibilityOptions = false, floatingLightTheme = !dark, floatingPanel = true)
-                }
-                items(activeApps, key = { it.identityKey }) { app ->
+                SystemVolumeControls(context, compact = true, showVisibilityOptions = false,
+                    floatingLightTheme = !dark, floatingPanel = true)
+                activeApps.forEach { app ->
                     AppVolumeTrack(app, showOptions = false, floatingLightTheme = !dark,
                         pinned = app.identityKey in appOrder.pinned,
                         allowAppDspControls = showAppDspButtons)
-                }
-            }
-        }
-    }
-}
-
-/** Lock-screen variant keeps the manager's visual language while exposing only safe system streams. */
-@Composable
-internal fun LightningVolumeLockedPanel(revision: Long, onSizeChanged: (Int, Int) -> Unit) {
-    val context = LocalContext.current
-    val panelPrefs = remember(context) {
-        context.getSharedPreferences("lightningdsp_volume_panel", Context.MODE_PRIVATE)
-    }
-    var panelTheme by remember {
-        mutableStateOf(LightningVolumePanelTheme.fromPreference(
-            panelPrefs.getString(LightningVolumePanelTheme.PREFERENCE_KEY, null)
-        ))
-    }
-    DisposableEffect(panelPrefs) {
-        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == null || key == LightningVolumePanelTheme.PREFERENCE_KEY) {
-                panelTheme = LightningVolumePanelTheme.fromPreference(
-                    panelPrefs.getString(LightningVolumePanelTheme.PREFERENCE_KEY, null)
-                )
-            }
-        }
-        panelPrefs.registerOnSharedPreferenceChangeListener(listener)
-        onDispose { panelPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
-    }
-    val dark = panelTheme.isDark(androidx.compose.foundation.isSystemInDarkTheme())
-    val scheme = if (android.os.Build.VERSION.SDK_INT >= 31) {
-        if (dark) androidx.compose.material3.dynamicDarkColorScheme(context)
-        else androidx.compose.material3.dynamicLightColorScheme(context)
-    } else if (dark) androidx.compose.material3.darkColorScheme() else androidx.compose.material3.lightColorScheme()
-
-    key(revision) {
-        MaterialTheme(colorScheme = lightningVolumeColorScheme(scheme, dark)) {
-            Surface(
-                modifier = Modifier.widthIn(min = 320.dp, max = 420.dp)
-                    .onSizeChanged { onSizeChanged(it.width, it.height) },
-                shape = RoundedCornerShape(28.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
-                contentColor = MaterialTheme.colorScheme.onSurface,
-            ) {
-                Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
-                    SystemVolumeControls(
-                        context = context,
-                        compact = true,
-                        showVisibilityOptions = false,
-                        floatingLightTheme = !dark,
-                        floatingPanel = true,
-                        allowedStreams = setOf(
-                            AudioManager.STREAM_MUSIC,
-                            AudioManager.STREAM_RING,
-                            AudioManager.STREAM_ALARM,
-                        ),
-                        allowRingerControls = false,
-                    )
                 }
             }
         }
@@ -1103,7 +1044,6 @@ private fun SystemVolumeControls(
     context: Context, compact: Boolean, showVisibilityOptions: Boolean, floatingLightTheme: Boolean = false,
     floatingPanel: Boolean = false, editing: Boolean = false,
     listState: LazyListState? = null, viewport: androidx.compose.ui.geometry.Rect? = null,
-    allowedStreams: Set<Int>? = null, allowRingerControls: Boolean = true,
 ) {
     val audio = remember(context) { context.getSystemService(AudioManager::class.java) }
     val notifications = remember(context) { context.getSystemService(android.app.NotificationManager::class.java) }
@@ -1138,17 +1078,17 @@ private fun SystemVolumeControls(
     }
     @Suppress("UNUSED_VARIABLE") val refreshState = streamConfig + refreshTick
     var secondaryExpanded by rememberSaveable { mutableStateOf(MediaGroupExpansionPolicy.initiallyExpanded(floatingPanel)) }
-    val grouping = allowedStreams == null && preferences.getBoolean("group_system_streams", true)
+    val grouping = preferences.getBoolean("group_system_streams", true)
     val streams = listOf("Media" to AudioManager.STREAM_MUSIC, "Call" to AudioManager.STREAM_VOICE_CALL,
         "Ring" to AudioManager.STREAM_RING, "Alarm" to AudioManager.STREAM_ALARM,
-        "Notifications" to AudioManager.STREAM_NOTIFICATION).filter { allowedStreams == null || it.second in allowedStreams }
+        "Notifications" to AudioManager.STREAM_NOTIFICATION)
     val streamIds = VolumeDisplayOrder.resolve(
         preferences.getString("order_streams", "").orEmpty().split('|'),
         streams.map { it.second.toString() })
     val dragBounds = remember { VolumeReorderBounds() }
     dragBounds.viewport = viewport
     val selectedStreamIds = streams.mapNotNull { (_, stream) ->
-        stream.toString().takeIf { allowedStreams?.contains(stream) ?: preferences.getBoolean("stream_$stream", true) }
+        stream.toString().takeIf { preferences.getBoolean("stream_$stream", true) }
     }.toSet()
     val visibleStreamIds = VolumeDisplayOrder.visibleSystemStreams(
         order = streamIds,
@@ -1204,7 +1144,7 @@ private fun SystemVolumeControls(
                 }
             }, trailing = {
                 if (stream == AudioManager.STREAM_MUSIC && showExpansionChevron) ExpansionButton()
-                if (stream == AudioManager.STREAM_RING && allowRingerControls) {
+                if (stream == AudioManager.STREAM_RING) {
                     RingerModeButton(ringerMode)
                     DoNotDisturbButton(dndFilter)
                 }

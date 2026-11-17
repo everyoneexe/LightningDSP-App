@@ -46,7 +46,6 @@ import lightning.dsp.volumemanager.backend.LightningDspVolumeManager
 import lightning.dsp.volumemanager.backend.SystemUiVolumePanelOption
 import lightning.dsp.volumemanager.backend.VolumeManagerState
 import lightning.dsp.volumemanager.ui.LightningVolumeFloatingPanel
-import lightning.dsp.volumemanager.ui.LightningVolumeLockedPanel
 import lightning.dsp.volumemanager.ui.VolumeOverlayIdlePolicy
 import kotlin.math.roundToInt
 import timber.log.Timber
@@ -70,8 +69,6 @@ class VolumePanelSurfaceService : Service() {
             if (intent.action == Intent.ACTION_SCREEN_OFF) {
                 // Never retain an unrestricted surface across a screen/keyguard transition.
                 session?.let { close(it, notify = true) }
-            } else if (intent.action == VOLUME_CHANGED_ACTION) {
-                session?.takeIf { it.locked }?.let { it.streamRevision++ }
             }
         }
     }
@@ -137,9 +134,8 @@ class VolumePanelSurfaceService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        ContextCompat.registerReceiver(this, privacyEvents, IntentFilter(Intent.ACTION_SCREEN_OFF).apply {
-            addAction(VOLUME_CHANGED_ACTION)
-        }, ContextCompat.RECEIVER_NOT_EXPORTED)
+        ContextCompat.registerReceiver(this, privacyEvents, IntentFilter(Intent.ACTION_SCREEN_OFF),
+            ContextCompat.RECEIVER_NOT_EXPORTED)
     }
 
     override fun onBind(intent: Intent?): IBinder? = if (Build.VERSION.SDK_INT >= 30) bridge else null
@@ -227,10 +223,7 @@ class VolumePanelSurfaceService : Service() {
                 setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
                 setContent {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        if (current.locked) LightningVolumeLockedPanel(current.streamRevision) { width, height ->
-                            runCatching { callback.surfaceSizeChanged(generation, width, height) }
-                        }
-                        else LightningVolumeFloatingPanel(current.state, onClose = {
+                        LightningVolumeFloatingPanel(current.state, onClose = {
                             runCatching { callback.dismiss(generation) }
                         }, onPanelFocusChanged = {
                             current.interaction(VolumeOverlayIdlePolicy.Interaction.FOCUS, it)
@@ -279,16 +272,14 @@ class VolumePanelSurfaceService : Service() {
             current.height = height
             surfaceHost.setView(root, width, height)
             current.lifecycleRegistry.currentState = Lifecycle.State.RESUMED
-            if (!current.locked) {
-                val stateObserver = Observer<VolumeManagerState> { state ->
-                    if (session === current) {
-                        if (!allowed() || locked()) close(current, notify = true)
-                        else current.state = state
-                    }
+            val stateObserver = Observer<VolumeManagerState> { state ->
+                if (session === current) {
+                    if (!allowed() || (!current.locked && locked())) close(current, notify = true)
+                    else current.state = state
                 }
-                current.observer = stateObserver
-                LightningDspVolumeManager.state.observeForever(stateObserver)
             }
+            current.observer = stateObserver
+            LightningDspVolumeManager.state.observeForever(stateObserver)
             if (session !== current || !current.locked && locked()) {
                 close(current, notify = true)
                 return
@@ -337,9 +328,7 @@ class VolumePanelSurfaceService : Service() {
         var maxHeight = 0
         var width = 0
         var height = 0
-        var state by mutableStateOf(if (locked) VolumeManagerState()
-            else LightningDspVolumeManager.state.value ?: VolumeManagerState())
-        var streamRevision by mutableStateOf(0L)
+        var state by mutableStateOf(LightningDspVolumeManager.state.value ?: VolumeManagerState())
         var observer: Observer<VolumeManagerState>? = null
         var drawTimeout: Runnable? = null
         val death = IBinder.DeathRecipient { main.post { close(this, notify = false) } }
@@ -363,6 +352,5 @@ class VolumePanelSurfaceService : Service() {
         private const val MAX_WARNINGS = 4
         private const val PRIVACY_CHECK_MILLIS = 250L
         private const val FIRST_DRAW_TIMEOUT_MILLIS = 1_500L
-        private const val VOLUME_CHANGED_ACTION = "android.media.VOLUME_CHANGED_ACTION"
     }
 }

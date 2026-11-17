@@ -56,13 +56,14 @@ class VolumeManagerSettingsContractTest {
         assertTrue(activity.contains("getSharedPreferences(LightningVolumePanel.PREFERENCES, MODE_PRIVATE)"))
         assertTrue(activity.contains("putBoolean(\"show_dsp_card\", checked).apply()"))
         assertTrue(composeUi.contains("getBoolean(\"show_dsp_card\", true)"))
-        assertTrue(composeUi.contains("if (showDspCard"))
+        assertTrue(composeUi.contains("if (showDspCard && state.enabled)"))
         assertTrue(composeUi.contains("registerOnSharedPreferenceChangeListener(listener)"))
         assertTrue(composeUi.contains("unregisterOnSharedPreferenceChangeListener(listener)"))
         assertTrue(activity.contains("LightningVolumeManagerScreen("))
         assertTrue(composeUi.contains("internal fun LightningVolumeFloatingPanel("))
         assertTrue(overlay.contains("LightningVolumeFloatingPanel("))
-        assertTrue(composeUi.contains("SystemVolumeControls(context, compact = true, showVisibilityOptions = false, floatingLightTheme = !dark, floatingPanel = true)"))
+        assertTrue(composeUi.contains("SystemVolumeControls(context, compact = true, showVisibilityOptions = false,"))
+        assertTrue(composeUi.contains("floatingLightTheme = !dark, floatingPanel = true)"))
     }
 
     @Test fun managerAndPerAppOptInsRemainIndependentOfCardVisibility() {
