@@ -86,7 +86,7 @@ class SurfaceSessionPolicyTest {
         assertTrue(panel.contains(".verticalScroll(rememberScrollState())"))
         assertTrue(panel.contains("if (showDspCard && state.enabled)"))
         assertTrue(panel.contains("SessionDspButtonVisibilityPolicy.shouldShow"))
-        assertTrue(panel.contains("it.active || (showMediaButtons && it.retainedPausedMedia)"))
+        assertTrue(panel.contains("it.active || it.dspToggleRetained || (showMediaButtons && it.retainedPausedMedia)"))
         assertTrue(panel.contains("SystemVolumeControls(context, compact = true"))
         assertFalse(panel.contains("LazyColumn("))
     }

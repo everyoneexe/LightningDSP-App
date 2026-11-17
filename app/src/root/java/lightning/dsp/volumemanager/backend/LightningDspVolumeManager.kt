@@ -85,6 +85,7 @@ object LightningDspVolumeManager {
     private val recentPlayback = RecentPlaybackHistory()
     private var recentPackages: List<String> = emptyList()
     private val mediaRetention = PausedMediaRetention()
+    private val dspControlRowRetention = DspControlRowRetention()
     private val mediaControllers = linkedMapOf<String, MutableList<MediaController>>()
     private var currentMediaTokens: Set<MediaSession.Token> = emptySet()
     private val mediaCallbackHandler = Handler(Looper.getMainLooper())
@@ -156,6 +157,7 @@ object LightningDspVolumeManager {
     fun setAppDspEnabled(packageName: String, enabled: Boolean) {
         check(::panelPreferences.isInitialized)
         val application = applications.firstOrNull { identityKey(it) == packageName } ?: return
+        dspControlRowRetention.retain(packageName, SystemClock.elapsedRealtime())
         val userId = SessionDspControlPreferences.userIdForUid(application.uid)
         val currentUserId = SessionDspControlPreferences.userIdForUid(android.os.Process.myUid())
         panelPreferences.edit().putBoolean(
@@ -167,6 +169,7 @@ object LightningDspVolumeManager {
         }
         context.sendLocalBroadcast(Intent(Constants.ACTION_PREFERENCES_UPDATED))
         worker.execute { publish(force = true) }
+        worker.schedule({ publish() }, DspControlRowRetention.DURATION_MILLIS + 50L, TimeUnit.MILLISECONDS)
     }
 
     /** Master opt-in for work-profile Session DSP; Global mode cannot apply a per-user gate. */
@@ -955,7 +958,8 @@ object LightningDspVolumeManager {
                     SessionDspControlPreferences.defaultEnabled()),
                 identityKey = name,
                 workProfile = workProfile,
-                workProfileDspAllowed = !workProfile || panelPreferences.getBoolean("process_work_profile_audio", false))
+                workProfileDspAllowed = !workProfile || panelPreferences.getBoolean("process_work_profile_audio", false),
+                dspToggleRetained = dspControlRowRetention.contains(name, now))
         }.sortedWith(compareByDescending<AppVolume> { it.active }.thenBy { it.label.lowercase() })
         val audio = context.getSystemService(AudioManager::class.java)
         val mediaVolume = runCatching { audio.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() /
@@ -1139,6 +1143,7 @@ data class AppVolume(
     val identityKey: String = packageName,
     val workProfile: Boolean = false,
     val workProfileDspAllowed: Boolean = true,
+    val dspToggleRetained: Boolean = false,
 )
 
 data class VolumeManagerState(

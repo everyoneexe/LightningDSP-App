@@ -29,7 +29,7 @@ class VolumeManagerSettingsContractTest {
         assertTrue(composeUi.contains("if (!perAppDspMode || !showSessionDspControls || alwaysShowSessionDspControls) appDspButtonsRevealed = false"))
         assertTrue(composeUi.contains("if (!perAppDspMode || !showSessionDspButtons || alwaysShowSessionDspButtons) appDspButtonsRevealed = false"))
         assertTrue(composeUi.contains("if (app.mediaControlVisible)"))
-        assertTrue(composeUi.contains("it.active || (showMediaButtons && it.retainedPausedMedia)"))
+        assertTrue(composeUi.contains("it.active || it.dspToggleRetained || (showMediaButtons && it.retainedPausedMedia)"))
         assertTrue(composeUi.contains("val sideClearance = if (addedControls > 0) 48 else 32"))
         assertTrue(backend.contains("private val mediaRetention = PausedMediaRetention()"))
         assertTrue(backend.contains("SessionDspControlPreferences.preferenceKey"))
@@ -109,6 +109,9 @@ class VolumeManagerSettingsContractTest {
         val database = File(app, "src/main/java/lightning/dsp/session/root/RootSessionDatabase.kt").readText()
 
         assertTrue(appTrack.contains("LightningDspVolumeManager.setAppDspEnabled(app.identityKey, dspEnabled)"))
+        assertTrue(appTrack.contains("var dspEnabled by remember(app.identityKey)"))
+        assertTrue(appTrack.contains("LaunchedEffect(app.identityKey, app.dspEnabled)"))
+        assertTrue(backend().contains("dspControlRowRetention.retain(packageName"))
         assertFalse(appTrack.contains("Toast"))
         assertFalse(database.contains("LDSP load fail (session="))
     }

@@ -789,7 +789,8 @@ internal fun LightningVolumeFloatingPanel(
     val appOrder = savedAppOrder.include(allApps.map { it.identityKey })
     val appById = allApps.associateBy { it.identityKey }
     val activeIds = if (state.enabled && state.perAppEnabled) {
-        allApps.filter { (it.active || (showMediaButtons && it.retainedPausedMedia)) && it.packageName !in hiddenAppIds }
+        allApps.filter { (it.active || it.dspToggleRetained || (showMediaButtons && it.retainedPausedMedia)) &&
+            it.packageName !in hiddenAppIds }
             .map { it.identityKey }
     } else emptyList()
     val activeApps = appOrder.displayOrder(activeIds).mapNotNull(appById::get)
@@ -1258,7 +1259,10 @@ private fun AppVolumeTrack(
     var volumeButtonsIgnored by remember(app.identityKey, app.volumeButtonsIgnored) {
         mutableStateOf(app.volumeButtonsIgnored)
     }
-    var dspEnabled by remember(app.identityKey, app.dspEnabled) { mutableStateOf(app.dspEnabled) }
+    var dspEnabled by remember(app.identityKey) { mutableStateOf(app.dspEnabled) }
+    androidx.compose.runtime.LaunchedEffect(app.identityKey, app.dspEnabled) {
+        dspEnabled = app.dspEnabled
+    }
     val lightControls = floatingLightTheme || MaterialTheme.colorScheme.background.luminance() > 0.5f
     var appIcon by remember(app.identityKey) { mutableStateOf<Drawable?>(null) }
     androidx.compose.runtime.LaunchedEffect(app.packageName) {
