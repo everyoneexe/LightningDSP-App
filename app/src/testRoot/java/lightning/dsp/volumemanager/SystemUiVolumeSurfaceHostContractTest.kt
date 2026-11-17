@@ -1,0 +1,70 @@
+package lightning.dsp.volumemanager
+
+import java.io.File
+import org.junit.Assert.*
+import org.junit.Test
+
+/** Wiring checks only; trusted window z-order, touch and keyguard must be verified on a device. */
+class SystemUiVolumeSurfaceHostContractTest {
+    private val app = sequenceOf(File("."), File("app"))
+        .first { File(it, "src/root/AndroidManifest.xml").isFile }
+    private val host get() = File(app,
+        "src/root/java/lightning/dsp/volumemanager/surface/SystemUiVolumeSurfaceHost.java").readText()
+    private val hook get() = File(app,
+        "src/root/java/lightning/dsp/volumemanager/backend/SystemUiVolumePanelHook.java").readText()
+
+    @Test fun windowBelongsToSystemUiAndEmbedsAppSurfaceWithoutGlobalPermission() {
+        assertTrue(host.contains("Build.VERSION.SDK_INT < 30"))
+        assertTrue(host.contains("\"com.android.systemui\".equals(context.getPackageName())"))
+        assertTrue(host.contains("getField(\"TYPE_VOLUME_OVERLAY\")"))
+        assertTrue(host.contains("displays.getDisplay(Display.DEFAULT_DISPLAY)"))
+        assertTrue(host.contains("context.createDisplayContext(display).createWindowContext(type, null)"))
+        assertTrue(host.contains("if (warnings++ >= 4) return"))
+        assertTrue(host.contains("surface.setChildSurfacePackage(result)"))
+        assertTrue(host.contains("surface.setZOrderOnTop(true)"))
+        assertTrue(host.contains("VOLUME_SURFACE_HOST"))
+        assertTrue(host.contains("commands, PERMISSION, main"))
+        assertFalse(host.contains("TYPE_APPLICATION_OVERLAY"))
+        assertFalse(host.contains("setKeyguardDisabled"))
+        assertFalse(host.contains("requestDismissKeyguard"))
+    }
+
+    @Test fun readinessRequiresAttachedCurrentSurfaceAndBoundedOwnerLifecycle() {
+        assertTrue(host.contains("resultGeneration != generation"))
+        assertTrue(host.contains("ready = surface.isAttachedToWindow()"))
+        assertTrue(host.contains("Binder.getCallingUid() == appUid"))
+        assertTrue(host.contains("binder.linkToDeath(serviceDeath, 0)"))
+        assertTrue(host.contains("service.release(owner, generation)"))
+        assertTrue(host.contains("HEARTBEAT_MS = 2_000L"))
+        assertTrue(host.contains("if (ready) {"))
+        assertFalse(host.contains("heartbeat(ready && window.isAttachedToWindow())"))
+        assertTrue(host.contains("REQUEST_TIMEOUT_MS = 2_000L"))
+        assertTrue(host.contains("if (result != null) result.release()"))
+        assertTrue(hook.contains("!SystemUiVolumeSurfaceHost.isReady()"))
+        assertTrue(hook.contains("SystemUiVolumeSurfaceHost.warmFromVolumeEvent()"))
+        assertTrue(host.contains("host.requestedShow = false"))
+        assertTrue(host.contains("Intent.ACTION_SCREEN_ON"))
+        assertTrue(host.contains("&& optedIn()) prepare()"))
+    }
+
+    @Test fun privacyTransitionsRemovePreviousContentAndUnsupportedListenersRestrictPresentation() {
+        assertTrue(host.contains("Intent.ACTION_SCREEN_OFF"))
+        assertTrue(host.contains("android.intent.action.USER_SWITCHED"))
+        assertTrue(host.contains("addKeyguardLockedStateListener"))
+        assertTrue(host.contains("if (!privacyListenerReady || keyguard == null) return true"))
+        assertTrue(host.contains("locked != renderingLocked || renderingLocked != presentationLocked()"))
+        assertTrue(host.contains("main.removeCallbacks(heartbeat)"))
+        assertTrue(host.contains("windows.removeViewImmediate(oldWindow)"))
+    }
+
+    @Test fun failedSurfaceReplaysOnlyVerifiedStockCallbackAndDragKeepsPanelAlive() {
+        assertTrue(hook.contains("XposedBridge.invokeOriginalMethod(method, controller, originalArgs)"))
+        assertTrue(hook.contains("new Handler(callbackLooper)"))
+        assertFalse(host.contains("adjustStreamVolume"))
+        assertFalse(host.contains("adjustVolume("))
+        assertTrue(host.contains("touching || hovering || remoteInteracting"))
+        assertTrue(host.contains("IDLE_MS = 3_300L"))
+        assertTrue(host.contains("FADE_MS = 500L"))
+        assertTrue(host.contains("layout.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE"))
+    }
+}

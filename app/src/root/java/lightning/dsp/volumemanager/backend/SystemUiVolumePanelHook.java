@@ -3,16 +3,20 @@ package lightning.dsp.volumemanager.backend;
 import android.os.Process;
 import android.os.Build;
 import android.os.SystemClock;
+import android.app.Application;
+import android.os.Handler;
+import android.os.Looper;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 import java.lang.reflect.Method;
 import lightning.dsp.utils.logging.DiagnosticMode;
+import lightning.dsp.volumemanager.surface.SystemUiVolumeSurfaceHost;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
-/** One UI dispatches its volume panel from SystemUI even when a controller proxy is installed. */
+/** Keep verified SystemUI volume dispatch while a live app-owned surface is hosted in its window. */
 public final class SystemUiVolumePanelHook implements IXposedHookLoadPackage {
     private static final String SYSTEM_UI = "com.android.systemui";
     private static final String[] VOLUME_DIALOG_CONTROLLERS = {
@@ -50,6 +54,14 @@ public final class SystemUiVolumePanelHook implements IXposedHookLoadPackage {
 
     @Override public void handleLoadPackage(XC_LoadPackage.LoadPackageParam info) {
         if (!SYSTEM_UI.equals(info.packageName)) return;
+        if (Build.VERSION.SDK_INT >= 30) {
+            XposedHelpers.findAndHookMethod(Application.class, "onCreate", new XC_MethodHook() {
+                @Override protected void afterHookedMethod(MethodHookParam param) {
+                    if (param.thisObject instanceof Application)
+                        SystemUiVolumeSurfaceHost.install((Application) param.thisObject);
+                }
+            });
+        }
         try {
             boolean samsung = "samsung".equalsIgnoreCase(Build.MANUFACTURER);
             Class<?> control = null;
@@ -72,10 +84,31 @@ public final class SystemUiVolumePanelHook implements IXposedHookLoadPackage {
                 if (!isVolumeChangedMethod(method)) continue;
                 XposedBridge.hookMethod(method, new XC_MethodHook() {
                     @Override protected void beforeHookedMethod(MethodHookParam param) {
-                        if (!suppressionActive() || param.args == null || param.args.length < 2 || !(param.args[1] instanceof Integer))
-                            return;
+                        if (Build.VERSION.SDK_INT < 30) return;
+                        if (param.args == null || param.args.length < 2 || !(param.args[1] instanceof Integer)) return;
+                        // Capture the exact platform callback, not a second volume adjustment. The
+                        // root proxy may already have stripped SHOW_UI before SystemUI receives it.
+                        Looper callbackLooper = Looper.myLooper();
+                        if (callbackLooper != null) {
+                            final Handler callbackHandler = new Handler(callbackLooper);
+                            final Object controller = param.thisObject;
+                            final Object[] originalArgs = param.args.clone();
+                            originalArgs[1] = ((Integer) originalArgs[1]) | FLAG_SHOW_UI;
+                            SystemUiVolumeSurfaceHost.setStockFallback(() -> callbackHandler.post(() -> {
+                                try { XposedBridge.invokeOriginalMethod(method, controller, originalArgs); }
+                                catch (Throwable ignored) { /* Unsupported native callback remains untouched. */ }
+                            }));
+                        }
                         int flags = (Integer) param.args[1];
-                        if ((flags & FLAG_SHOW_UI) != 0) param.args[1] = flags & ~FLAG_SHOW_UI;
+                        if (!SystemUiVolumeSurfaceHost.isReady()) {
+                            if ((flags & FLAG_SHOW_UI) != 0) SystemUiVolumeSurfaceHost.warmFromVolumeEvent();
+                            return; // The first event keeps stock UI; only later ready events may suppress it.
+                        }
+                        if (!suppressionActive()) return;
+                        if ((flags & FLAG_SHOW_UI) != 0) {
+                            SystemUiVolumeSurfaceHost.showFromVolumeEvent();
+                            param.args[1] = flags & ~FLAG_SHOW_UI;
+                        }
                     }
                 });
                 hooks++;
