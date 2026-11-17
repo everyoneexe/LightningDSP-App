@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.ApplicationInfo
+import android.content.pm.LauncherApps
 import android.media.AudioManager
 import android.media.session.MediaController
 import android.media.session.MediaSession
@@ -22,6 +23,7 @@ import lightning.dsp.MainApplication
 import me.timschneeberger.rootlessjamesdsp.service.NotificationListenerService
 import lightning.dsp.utils.Constants
 import lightning.dsp.utils.extensions.ContextExtensions.sendLocalBroadcast
+import lightning.dsp.session.shared.SessionDspControlPreferences
 import lightning.dsp.session.shared.SESSION_DSP_ENABLED_PREFIX
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LiveData
@@ -143,10 +145,15 @@ object LightningDspVolumeManager {
 
     fun setAppDspEnabled(packageName: String, enabled: Boolean) {
         check(::panelPreferences.isInitialized)
-        panelPreferences.edit().putBoolean(SESSION_DSP_ENABLED_PREFIX + packageName, enabled).apply()
+        val application = applications.firstOrNull { identityKey(it) == packageName } ?: return
+        val userId = SessionDspControlPreferences.userIdForUid(application.uid)
+        val currentUserId = SessionDspControlPreferences.userIdForUid(android.os.Process.myUid())
+        panelPreferences.edit().putBoolean(
+            SessionDspControlPreferences.preferenceKey(application.packageName, userId, currentUserId), enabled
+        ).apply()
         runCatching {
             (context.applicationContext as MainApplication).rootSessionDatabase
-                .setPackageDspEnabled(packageName, enabled)
+                .setPackageDspEnabled(application.packageName, enabled, application.uid)
         }
         context.sendLocalBroadcast(Intent(Constants.ACTION_PREFERENCES_UPDATED))
         worker.execute { publish(force = true) }
@@ -284,6 +291,14 @@ object LightningDspVolumeManager {
             addAction(Intent.ACTION_PACKAGE_CHANGED)
             addDataScheme("package")
         }, ContextCompat.RECEIVER_NOT_EXPORTED)
+        ContextCompat.registerReceiver(this.context, object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) { refresh() }
+        }, IntentFilter().apply {
+            addAction(Intent.ACTION_MANAGED_PROFILE_ADDED)
+            addAction(Intent.ACTION_MANAGED_PROFILE_REMOVED)
+            addAction(Intent.ACTION_MANAGED_PROFILE_AVAILABLE)
+            addAction(Intent.ACTION_MANAGED_PROFILE_UNAVAILABLE)
+        }, ContextCompat.RECEIVER_NOT_EXPORTED)
         worker.execute { configureMediaControls() }
         rikka.shizuku.Shizuku.addRequestPermissionResultListener { code, _ ->
             worker.execute {
@@ -325,16 +340,37 @@ object LightningDspVolumeManager {
 
     fun refresh() {
         worker.execute {
-            applications = context.packageManager.getInstalledApplications(0)
+            applications = installedApplications()
             uidCounts = applications.groupingBy { it.uid }.eachCount()
             labels = applications.associate { application ->
-                application.packageName to runCatching { application.loadLabel(context.packageManager).toString() }
+                identityKey(application) to runCatching { application.loadLabel(context.packageManager).toString() }
                     .getOrDefault(application.packageName)
             }
             publish()
             sendSettings()
         }
     }
+
+    /** Uses only profiles exposed by LauncherApps, so device policy remains authoritative. */
+    private fun installedApplications(): List<ApplicationInfo> {
+        @Suppress("DEPRECATION")
+        val personal = context.packageManager.getInstalledApplications(0)
+        val launcherApps = context.getSystemService(LauncherApps::class.java) ?: return personal
+        val currentUserId = SessionDspControlPreferences.userIdForUid(android.os.Process.myUid())
+        val work = launcherApps.profiles.asSequence()
+            .flatMap { profile ->
+                runCatching { launcherApps.getActivityList(null, profile).asSequence().map { it.applicationInfo } }
+                    .getOrElse { emptySequence() }
+            }.filter { SessionDspControlPreferences.userIdForUid(it.uid) != currentUserId }
+        return (personal.asSequence() + work).distinctBy { it.uid to it.packageName }.toList()
+    }
+
+    private fun identityKey(application: ApplicationInfo): String =
+        SessionDspControlPreferences.identityKey(
+            application.packageName,
+            SessionDspControlPreferences.userIdForUid(application.uid),
+            SessionDspControlPreferences.userIdForUid(android.os.Process.myUid())
+        )
 
     /** Backup reads follow pending per-app writes on the same worker. No runtime ownership is exported. */
     fun snapshotSettings(): java.util.concurrent.Future<Map<String, *>> {
@@ -533,7 +569,7 @@ object LightningDspVolumeManager {
 
     private fun update(packageName: String, name: String, value: Any) {
         worker.execute {
-            val application = applications.find { it.packageName == packageName } ?: return@execute
+            val application = applications.find { identityKey(it) == packageName } ?: return@execute
             // Android player ownership is UID-scoped. Do not guess between shared-UID apps.
             if (name in setOf("volume", "muted", "pan") && uidCounts[application.uid] != 1) {
                 error = "Per-app control is unavailable for packages sharing an Android UID"
@@ -541,11 +577,9 @@ object LightningDspVolumeManager {
                 return@execute
             }
             val edit = preferences.edit()
-            applications.filter { it.packageName == packageName }.forEach {
-                when (value) {
-                    is Float -> edit.putFloat("$name:${it.packageName}", value)
-                    is Boolean -> edit.putBoolean("$name:${it.packageName}", value)
-                }
+            when (value) {
+                is Float -> edit.putFloat("$name:$packageName", value)
+                is Boolean -> edit.putBoolean("$name:$packageName", value)
             }
             if (name in setOf("volume", "muted", "pan")) {
                 val selected = preferences.getString(VolumeProfiles.SELECTED, VolumeProfiles.DEFAULT_ID)!!
@@ -844,7 +878,11 @@ object LightningDspVolumeManager {
     private fun sendSettings() {
         val output = session ?: return
         val ignored = org.json.JSONArray()
-        applications.filter { preferences.getBoolean("ignore_buttons:${it.packageName}", false) }.forEach { ignored.put(it.packageName) }
+        val currentUserId = SessionDspControlPreferences.userIdForUid(android.os.Process.myUid())
+        applications.filter {
+            SessionDspControlPreferences.userIdForUid(it.uid) == currentUserId &&
+                preferences.getBoolean("ignore_buttons:${identityKey(it)}", false)
+        }.forEach { ignored.put(it.packageName) }
         val systemUiPanelOptedIn = SystemUiVolumePanelOption.requested(context)
         val systemUiHookReady = systemUiPanelOptedIn && SystemUiVolumePanelOption.available()
         val rules = JSONObject().put("activate", output.sideEffectsAuthorized).put("foreground_known", foregroundPackage != null).put("ignored_packages", ignored).put("panel_enabled", isEnabled && Settings.canDrawOverlays(context))
@@ -852,13 +890,13 @@ object LightningDspVolumeManager {
             .put("systemui_hook_ready", systemUiHookReady)
             .put("panel_bypass", foregroundPackage?.let { preferences.getBoolean("ignore_buttons:$it", false) } ?: false)
         applications.filter { application -> isEnabled && perAppEnabled && PlaybackVolumePolicy.canControl(uidCounts[application.uid] ?: 0) }.forEach { application ->
-            val name = application.packageName
+            val name = identityKey(application)
             val muted = preferences.getBoolean("muted:$name", false)
             val volume = preferences.getFloat("volume:$name", 1f).coerceIn(0f, 1f)
             val pan = preferences.getFloat("pan:$name", 0f).coerceIn(-1f, 1f)
             if (muted || volume != 1f || pan != 0f) {
                 rules.put(application.uid.toString(), JSONObject()
-                    .put("package", name).put("volume", PlaybackVolumePolicy.multiplier(perAppEnabled, muted, volume)).put("pan", pan))
+                    .put("package", application.packageName).put("volume", PlaybackVolumePolicy.multiplier(perAppEnabled, muted, volume)).put("pan", pan))
             }
         }
         output.offer(rules.toString())
@@ -868,17 +906,23 @@ object LightningDspVolumeManager {
         val media = mediaStatusByPackage()
         val now = SystemClock.elapsedRealtime()
         val apps = applications.map { application ->
-            val name = application.packageName
+            val name = identityKey(application)
             val mediaStatus = media[name]
-            AppVolume(name, labels[name] ?: name,
+            AppVolume(application.packageName, labels[name] ?: application.packageName,
                 application.uid, application.uid in activeUids,
                 preferences.getFloat("volume:$name", 1f), preferences.getBoolean("muted:$name", false),
                 preferences.getFloat("pan:$name", 0f), application.flags and ApplicationInfo.FLAG_SYSTEM != 0,
                 preferences.getBoolean("ignore_buttons:$name", false), uidCounts[application.uid] == 1,
                 preferences.getBoolean("had_player:$name", false) || application.uid in seenUids,
                 mediaStatus?.visible == true, mediaStatus?.playing == true,
-                mediaRetention.contains(name, now),
-                panelPreferences.getBoolean(SESSION_DSP_ENABLED_PREFIX + name, true))
+                mediaRetention.contains(application.packageName, now),
+                panelPreferences.getBoolean(
+                    SessionDspControlPreferences.preferenceKey(application.packageName,
+                        SessionDspControlPreferences.userIdForUid(application.uid), SessionDspControlPreferences.userIdForUid(android.os.Process.myUid())),
+                    SessionDspControlPreferences.defaultEnabled(SessionDspControlPreferences.userIdForUid(application.uid),
+                        SessionDspControlPreferences.userIdForUid(android.os.Process.myUid()))),
+                identityKey = name,
+                workProfile = SessionDspControlPreferences.userIdForUid(application.uid) != SessionDspControlPreferences.userIdForUid(android.os.Process.myUid()))
         }.sortedWith(compareByDescending<AppVolume> { it.active }.thenBy { it.label.lowercase() })
         val audio = context.getSystemService(AudioManager::class.java)
         val mediaVolume = runCatching { audio.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() /
@@ -1058,7 +1102,9 @@ data class AppVolume(
     val mediaControlVisible: Boolean = false,
     val mediaPlaying: Boolean = false,
     val retainedPausedMedia: Boolean = false,
-    val dspEnabled: Boolean = true
+    val dspEnabled: Boolean = true,
+    val identityKey: String = packageName,
+    val workProfile: Boolean = false,
 )
 
 data class VolumeManagerState(

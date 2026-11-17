@@ -52,7 +52,7 @@ internal class LightningVolumePanel(context: Context, private val compact: Boole
     private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "show_dsp_card" || key == "hide_inactive_dsp_card") updateCardVisibility()
         if (key?.startsWith("stream_") == true) refreshStreams()
-        if (key?.startsWith("hidden_") == true) updateApps()
+        if (key?.startsWith("hidden_") == true || key == "show_work_profile_apps") updateApps()
     }
     private val status = label(14f)
     private val enabledSwitch = MaterialSwitch(context)
@@ -298,8 +298,11 @@ internal class LightningVolumePanel(context: Context, private val compact: Boole
             empty.visibility = GONE
             return
         }
+        val showWorkProfileApps = preferences.getBoolean(
+            "show_work_profile_apps", WorkProfileVisibilityPolicy.DEFAULT_SHOW_WORK_APPS)
         adapter.items = state.apps.filter { app ->
-            val hidden = preferences.getBoolean("hidden_${app.packageName}", false)
+            if (!WorkProfileVisibilityPolicy.includes(app.workProfile, showWorkProfileApps)) return@filter false
+            val hidden = preferences.getBoolean("hidden_${app.identityKey}", false)
             val groupMatch = when (group) {
                 R.string.ldsp_vm_group_active -> app.active && !hidden
                 R.string.ldsp_vm_group_inactive -> !app.active && !hidden && app.hadPlayer
@@ -336,21 +339,22 @@ internal class LightningVolumePanel(context: Context, private val compact: Boole
             isEnabled = canChangeAppAudio(app)
             setText(R.string.ldsp_vm_mute)
             isChecked = app.muted
-            setOnCheckedChangeListener { _, checked -> LightningDspVolumeManager.setAppMuted(app.packageName, checked) }
+            setOnCheckedChangeListener { _, checked -> LightningDspVolumeManager.setAppMuted(app.identityKey, checked) }
         })
         content.addView(MaterialSwitch(context).apply {
             setText(R.string.ldsp_vm_hide)
-            isChecked = preferences.getBoolean("hidden_${app.packageName}", false)
+            isChecked = preferences.getBoolean("hidden_${app.identityKey}", false)
             setOnCheckedChangeListener { _, checked ->
-                preferences.edit().putBoolean("hidden_${app.packageName}", checked).apply()
+                preferences.edit().putBoolean("hidden_${app.identityKey}", checked).apply()
                 updateApps()
             }
         })
         content.addView(MaterialSwitch(context).apply {
+            isEnabled = !app.workProfile
             setText(R.string.ldsp_vm_ignore_buttons)
             isChecked = app.volumeButtonsIgnored
             setOnCheckedChangeListener { _, checked ->
-                LightningDspVolumeManager.setAppVolumeButtonsIgnored(app.packageName, checked)
+                LightningDspVolumeManager.setAppVolumeButtonsIgnored(app.identityKey, checked)
             }
         })
         content.addView(label(14f).apply { setText(R.string.ldsp_vm_pan) })
@@ -359,16 +363,16 @@ internal class LightningVolumePanel(context: Context, private val compact: Boole
             value = ((app.pan + 1f) * 100f).coerceIn(0f, 200f)
             contentDescription = context.getString(R.string.ldsp_vm_pan)
             addOnChangeListener { _, value, user -> if (user)
-                LightningDspVolumeManager.setAppPan(app.packageName, value / 100f - 1f)
+                LightningDspVolumeManager.setAppPan(app.identityKey, value / 100f - 1f)
             }
         })
         content.addView(MaterialButton(context).apply {
             isEnabled = canChangeAppAudio(app)
             setText(R.string.ldsp_vm_reset)
             setOnClickListener {
-                LightningDspVolumeManager.setAppVolume(app.packageName, 1f)
-                LightningDspVolumeManager.setAppMuted(app.packageName, false)
-                LightningDspVolumeManager.setAppPan(app.packageName, 0f)
+                LightningDspVolumeManager.setAppVolume(app.identityKey, 1f)
+                LightningDspVolumeManager.setAppMuted(app.identityKey, false)
+                LightningDspVolumeManager.setAppPan(app.identityKey, 0f)
                 optionsDialog?.dismiss()
             }
         })
@@ -405,7 +409,7 @@ internal class LightningVolumePanel(context: Context, private val compact: Boole
             row.addView(volume)
             volume.addOnChangeListener { _, value, user -> if (user) {
                 valueLabel.text = appVolumeLabel(value / 100f)
-                bound?.let { LightningDspVolumeManager.setAppVolume(it.packageName, value / 100f) }
+                bound?.let { LightningDspVolumeManager.setAppVolume(it.identityKey, value / 100f) }
             } }
             trackDragging(volume)
         }

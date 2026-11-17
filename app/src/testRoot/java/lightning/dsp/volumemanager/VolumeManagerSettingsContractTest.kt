@@ -30,7 +30,7 @@ class VolumeManagerSettingsContractTest {
         assertTrue(composeUi.contains("it.active || (showMediaButtons && it.retainedPausedMedia)"))
         assertTrue(composeUi.contains("val sideClearance = if (addedControls > 0) 48 else 32"))
         assertTrue(backend.contains("private val mediaRetention = PausedMediaRetention()"))
-        assertTrue(backend.contains("SESSION_DSP_ENABLED_PREFIX + name"))
+        assertTrue(backend.contains("SessionDspControlPreferences.preferenceKey"))
         assertTrue(backend.contains("fun toggleMediaPlayback(packageName: String)"))
     }
 
@@ -105,7 +105,7 @@ class VolumeManagerSettingsContractTest {
             .substringBefore("private fun AppOptions(")
         val database = File(app, "src/main/java/lightning/dsp/session/root/RootSessionDatabase.kt").readText()
 
-        assertTrue(appTrack.contains("LightningDspVolumeManager.setAppDspEnabled(app.packageName, dspEnabled)"))
+        assertTrue(appTrack.contains("LightningDspVolumeManager.setAppDspEnabled(app.identityKey, dspEnabled)"))
         assertFalse(appTrack.contains("Toast"))
         assertFalse(database.contains("LDSP load fail (session="))
     }
@@ -217,7 +217,7 @@ class VolumeManagerSettingsContractTest {
         assertTrue(options.contains("Switch(checked = muted, enabled = controllable"))
         assertTrue(options.contains("Slider(value = pan, enabled = controllable"))
         assertTrue(options.contains("onHiddenFromManagerChange(!hiddenFromManager)"))
-        assertTrue(appTrack.contains("LightningDspVolumeManager.setAppMuted(app.packageName, muted)"))
+        assertTrue(appTrack.contains("LightningDspVolumeManager.setAppMuted(app.identityKey, muted)"))
         assertTrue(appTrack.contains("Hide \${app.label} from floating panel"))
         assertTrue(options.contains("Hide from manager"))
         assertTrue(options.contains("Box {"))

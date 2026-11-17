@@ -16,7 +16,7 @@ internal object VolumeManagerBackupCodec {
 
     private enum class Kind { BOOLEAN, VOLUME, PAN, ACCESS, THEME, STRING, PACKAGES, PROFILE_STRING }
 
-    private val packageId = Regex("android|[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)+")
+    private val appIdentity = Regex("(?:user:[0-9]+:)?(?:android|[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)+)")
     private val managerBooleans = setOf("enabled", "per_app_enabled", "startup_on_boot")
     private val panelBooleans = setOf(
         "show_dsp_card", "hide_system_apps", "group_system_streams", "hide_inactive_dsp_card",
@@ -29,7 +29,7 @@ internal object VolumeManagerBackupCodec {
     )
 
     private fun dynamicPackage(key: String, prefix: String): Boolean =
-        key.startsWith(prefix) && packageId.matches(key.removePrefix(prefix))
+        key.startsWith(prefix) && appIdentity.matches(key.removePrefix(prefix))
 
     private fun managerKind(key: String): Kind? = when {
         VolumeProfiles.isSetting(key) -> when {
@@ -47,7 +47,7 @@ internal object VolumeManagerBackupCodec {
     }
 
     private fun panelKind(key: String): Kind? = when {
-        key in panelBooleans || dynamicPackage(key, "hidden_") || dynamicPackage(key, "manager_hidden_") ||
+            key in panelBooleans || dynamicPackage(key, "hidden_") || dynamicPackage(key, "manager_hidden_") ||
             dynamicPackage(key, "session_dsp_enabled:") -> Kind.BOOLEAN
         key in panelStrings -> Kind.STRING
         key == "floating_panel_theme" -> Kind.THEME
@@ -78,7 +78,7 @@ internal object VolumeManagerBackupCodec {
             Kind.THEME -> value is String && value in setOf("system", "light", "dark")
             Kind.STRING -> value is String
             Kind.PROFILE_STRING -> VolumeProfiles.validate(key, value)
-            Kind.PACKAGES -> value is Set<*> && value.all { it is String && packageId.matches(it) }
+            Kind.PACKAGES -> value is Set<*> && value.all { it is String && appIdentity.matches(it) }
         }
         require(valid && (!VolumeProfiles.isSetting(key) || VolumeProfiles.validate(key, value))) { "Invalid Volume Manager backup setting: $key" }
         // Do not retain the mutable StringSet owned by SharedPreferences.

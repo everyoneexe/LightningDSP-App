@@ -102,7 +102,21 @@ class VolumeManagerBackupSettingsTest {
         assertTrue(Codec.isPanelSetting("hidden_com.example.player_2"))
         assertTrue(Codec.isPanelSetting("manager_hidden_com.example.player_2"))
         assertTrue(Codec.isPanelSetting("session_dsp_enabled:com.example.player_2"))
+        assertTrue(Codec.isManagerSetting("volume:user:10:com.example.player"))
+        assertTrue(Codec.isManagerSetting("muted:user:10:com.example.player"))
+        assertTrue(Codec.isPanelSetting("session_dsp_enabled:user:10:com.example.player"))
+        assertTrue(Codec.isPanelSetting("hidden_user:10:com.example.player"))
         rejects { Codec.decode(payload("panel.pinned_apps" to "com.app|")) }
+    }
+
+    @Test fun profileScopedSettingsAndOrderSurviveBackupRoundTrip() {
+        val settings = VolumeManagerBackupSettings(
+            manager = mapOf("volume:user:10:com.example.player" to 0.4f,
+                "muted:user:10:com.example.player" to false),
+            panel = mapOf("session_dsp_enabled:user:10:com.example.player" to true,
+                "hidden_user:10:com.example.player" to false,
+                "order_apps" to "user:10:com.example.player"))
+        assertEquals(settings, Codec.decode(Codec.encode(settings)))
     }
 
     @Test fun knownSettingsRejectWrongJvmTypesAndMalformedBooleans() {

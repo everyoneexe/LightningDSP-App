@@ -9,9 +9,9 @@ internal object VolumeProfiles {
     const val SELECTED = "selected_profile"
     const val DEFAULT_ID = "default"
     private val id = Regex("default|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")
-    private val pkg = Regex("android|[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)+")
+    private val identity = Regex("(?:user:[0-9]+:)?(?:android|[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)+)")
     fun isRule(key: String): Boolean = listOf("volume:", "muted:", "pan:").any {
-        key.startsWith(it) && pkg.matches(key.removePrefix(it))
+        key.startsWith(it) && identity.matches(key.removePrefix(it))
     }
     fun profileKey(profile: String, rule: String): String {
         require(id.matches(profile) && isRule(rule))

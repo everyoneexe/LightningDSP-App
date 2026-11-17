@@ -80,7 +80,7 @@ class VolumeConnectionRecoveryTest {
         assertTrue(root.contains("VolumeHostLease(SystemClock.uptimeMillis())"))
         assertTrue(root.contains("hostLease.renew(SystemClock.uptimeMillis())"))
         assertTrue(root.contains("hostLease.expired(SystemClock.uptimeMillis())"))
-        assertTrue(manager.contains("mediaRetention.contains(name, now)"))
+        assertTrue(manager.contains("mediaRetention.contains(application.packageName, now)"))
         assertTrue(manager.contains("val now = SystemClock.elapsedRealtime()"))
     }
 

@@ -46,7 +46,7 @@ class FocusedSessionOptionContractTest {
         val database = read("src/main/java/lightning/dsp/session/root/RootSessionDatabase.kt")
         assertTrue(projection.contains("playing || focusedRetention"))
         assertTrue(database.contains("focusedRetention = false"))
-        assertTrue(database.contains("processingEnabled = enabled && isPackageDspEnabled(session.packageName)"))
+        assertTrue(database.contains("processingEnabled = enabled && isPackageDspEnabled(session.packageName, session.uid)"))
         val processing = database.substringAfter("private fun shouldProcess(").substringBefore("fun activeProcessingSessions()")
         assertFalse(processing.contains("shouldKeepEffectsReady("))
         assertTrue(processing.contains("shouldKeepUnified("))

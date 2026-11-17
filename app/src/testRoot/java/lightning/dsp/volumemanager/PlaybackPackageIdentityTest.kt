@@ -40,10 +40,14 @@ class PlaybackPackageIdentityTest {
         }
         assertTrue(receiver!!.contains("addDataScheme(\"package\")"))
         val refresh = manager.substringAfter("fun refresh() {").substringBefore("fun setAppVolume")
-        assertTrue(refresh.contains("getInstalledApplications(0)"))
+        assertTrue(manager.contains("getInstalledApplications(0)"))
+        assertTrue(manager.contains("launcherApps.getActivityList(null, profile)"))
+        assertTrue(manager.contains("SessionDspControlPreferences.identityKey"))
+        assertTrue(manager.contains("ACTION_MANAGED_PROFILE_UNAVAILABLE"))
+        assertTrue(manager.contains("SessionDspControlPreferences.userIdForUid(it.uid) == currentUserId"))
         assertTrue(refresh.contains("uidCounts = applications.groupingBy { it.uid }.eachCount()"))
         assertTrue(refresh.contains("sendSettings()"))
-        assertTrue(manager.contains(".put(\"package\", name)"))
+        assertTrue(manager.contains(".put(\"package\", application.packageName)"))
         assertTrue(root.contains("PlaybackVolumePolicy.matchesPackage"))
         assertTrue(root.contains("getPackagesForUid(uid)"))
     }
