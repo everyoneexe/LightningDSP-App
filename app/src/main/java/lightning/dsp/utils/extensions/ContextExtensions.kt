@@ -9,6 +9,7 @@ import android.content.DialogInterface
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.content.pm.LauncherApps
 import android.content.res.Resources
 import android.graphics.Color
 import android.graphics.drawable.Drawable
@@ -424,6 +425,24 @@ object ContextExtensions {
         if(pkgName != null)
             return pkgName
 
+        // Package visibility can hide a managed-profile UID from the personal app.
+        // Use only profiles Android exposes to LauncherApps and match the full UID,
+        // never the appId or a personal copy of the same package.
+        if (uid >= 0 && uid / 100_000 != Process.myUid() / 100_000) {
+            val profilePackage = runCatching {
+                val launcher = getSystemService(LauncherApps::class.java) ?: return@runCatching null
+                val packages = launcher.profiles.asSequence()
+                    .flatMap { profile ->
+                        runCatching { launcher.getActivityList(null, profile) }.getOrDefault(emptyList())
+                            .asSequence().map {
+                                it.applicationInfo.uid to it.applicationInfo.packageName
+                            }
+                    }
+                uniquePackageForUid(uid, packages)
+            }.getOrNull()
+            if (profilePackage != null) return profilePackage
+        }
+
         try {
             pkgName = packageManager.getNameForUid(uid)
         }
@@ -432,6 +451,10 @@ object ContextExtensions {
 
         return pkgName
     }
+
+    internal fun uniquePackageForUid(uid: Int, packages: Sequence<Pair<Int, String>>): String? =
+        packages.filter { it.first == uid && it.second.isNotBlank() }
+            .map { it.second }.distinct().toList().singleOrNull()
 
 
     fun Context.getAppIcon(packageName: String): Drawable? {
