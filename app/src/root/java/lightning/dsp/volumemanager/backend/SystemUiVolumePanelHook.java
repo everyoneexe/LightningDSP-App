@@ -27,7 +27,10 @@ public final class SystemUiVolumePanelHook implements IXposedHookLoadPackage {
     private static final String ENABLED_PROPERTY = "debug.lightningdsp.suppress_volume_panel";
     private static final String READY_PROPERTY = "debug.lightningdsp.volume_panel_hook_pid";
     private static final long LEASE_TTL_MS = 6_000L;
+    private static final long CONTROLLER_RETRY_MS = 500L;
+    private static final int CONTROLLER_ATTEMPTS = 4;
     private static final int FLAG_SHOW_UI = 1;
+    private static boolean volumeHookInstalled;
 
     /** Only hook the AOSP contract: older releases use (int, int), newer ones add a boolean. */
     private static boolean isVolumeChangedMethod(Method method) {
@@ -57,18 +60,25 @@ public final class SystemUiVolumePanelHook implements IXposedHookLoadPackage {
         if (Build.VERSION.SDK_INT >= 30) {
             XposedHelpers.findAndHookMethod(Application.class, "onCreate", new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam param) {
-                    if (param.thisObject instanceof Application)
-                        SystemUiVolumeSurfaceHost.install((Application) param.thisObject);
+                    if (!(param.thisObject instanceof Application)) return;
+                    Application application = (Application) param.thisObject;
+                    SystemUiVolumeSurfaceHost.install(application);
+                    installVolumeController(application.getClassLoader(), 0);
                 }
             });
         }
+    }
+
+    /** SystemUI's concrete controller is not reliably resolvable during handleLoadPackage. */
+    private static void installVolumeController(ClassLoader loader, int attempt) {
+        if (volumeHookInstalled) return;
         try {
             boolean samsung = "samsung".equalsIgnoreCase(Build.MANUFACTURER);
             Class<?> control = null;
             int candidateCount = samsung ? VOLUME_DIALOG_CONTROLLERS.length : 1;
             for (int candidateIndex = 0; candidateIndex < candidateCount; candidateIndex++) {
                 String name = VOLUME_DIALOG_CONTROLLERS[candidateIndex];
-                Class<?> candidate = XposedHelpers.findClassIfExists(name, info.classLoader);
+                Class<?> candidate = XposedHelpers.findClassIfExists(name, loader);
                 if (candidate == null) continue;
                 for (Method method : candidate.getDeclaredMethods()) {
                     if (isVolumeChangedMethod(method)) { control = candidate; break; }
@@ -76,7 +86,12 @@ public final class SystemUiVolumePanelHook implements IXposedHookLoadPackage {
                 if (control != null) break;
             }
             if (control == null) {
-                XposedBridge.log("LightningDSP SystemUI volume panel: supported controller not found; native behavior retained");
+                if (attempt + 1 < CONTROLLER_ATTEMPTS) {
+                    new Handler(Looper.getMainLooper()).postDelayed(
+                        () -> installVolumeController(loader, attempt + 1), CONTROLLER_RETRY_MS);
+                } else {
+                    XposedBridge.log("LightningDSP SystemUI volume panel: controller unavailable after startup retries; native behavior retained");
+                }
                 return;
             }
             int hooks = 0;
@@ -127,6 +142,7 @@ public final class SystemUiVolumePanelHook implements IXposedHookLoadPackage {
                 XposedBridge.log("LightningDSP SystemUI volume panel: readiness property rejected; native behavior retained");
                 return;
             }
+            volumeHookInstalled = true;
             if (DiagnosticMode.isEnabled()) XposedBridge.log("LightningDSP SystemUI volume panel hook ready pid=" + Process.myPid() + " hooks=" + hooks);
         } catch (Throwable error) {
             XposedBridge.log("LightningDSP SystemUI volume panel hook unavailable; native behavior retained");
