@@ -4,7 +4,7 @@ import android.content.Context
 import com.topjohnwu.superuser.Shell
 import lightning.dsp.flavor.RootShellImpl
 
-/** Opt-in only when the Samsung SystemUI hook acknowledges its current process. */
+/** Opt-in only when a supported SystemUI volume hook acknowledges its current process. */
 object SystemUiVolumePanelOption {
     const val PREFERENCES = "lightningdsp_volume_panel"
     const val KEY = "suppress_systemui_volume_panel"

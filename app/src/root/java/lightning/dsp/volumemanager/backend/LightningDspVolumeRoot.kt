@@ -169,33 +169,33 @@ object LightningDspVolumeRoot {
                     }
                 }
                 remotePanelAllowed.set(settings.optBoolean("activate") && settings.optBoolean("panel_enabled"))
-                // Samsung One UI may dispatch the native panel independently of the
-                // registered IVolumeController. Keep a short lease only while the
-                // root-managed overlay is enabled; SystemUI fails open after expiry.
-                val shouldSuppressSamsungPanel = VolumePanelSuppressionLease.shouldSuppress(
-                    uid == 0 && Build.MANUFACTURER.equals("samsung", ignoreCase = true),
+                // Some SystemUI builds dispatch the stock panel independently of the
+                // registered IVolumeController. Keep a short lease only after a supported
+                // hook is acknowledged and the root-managed overlay is enabled.
+                val shouldSuppressSystemUiPanel = VolumePanelSuppressionLease.shouldSuppress(
+                    uid == 0,
                     settings.optBoolean("activate"), settings.optBoolean("panel_enabled"),
                     panelController != null && panelError == null, panelBypass.get(),
                     settings.optBoolean("systemui_panel_opted_in"), settings.optBoolean("systemui_hook_ready")
                 )
                 val panelLeaseNow = SystemClock.uptimeMillis()
-                if (!panelLeaseWritten || shouldSuppressSamsungPanel != panelLeaseEnabled ||
-                    (shouldSuppressSamsungPanel && panelLeaseNow - lastPanelLeaseRefreshAt >= VolumePanelSuppressionLease.REFRESH_INTERVAL_MS)) {
+                if (!panelLeaseWritten || shouldSuppressSystemUiPanel != panelLeaseEnabled ||
+                    (shouldSuppressSystemUiPanel && panelLeaseNow - lastPanelLeaseRefreshAt >= VolumePanelSuppressionLease.REFRESH_INTERVAL_MS)) {
                     val leaseWrite = runCatching {
                         val properties = Class.forName("android.os.SystemProperties")
                         val set = properties.getDeclaredMethod("set", String::class.java, String::class.java).apply { isAccessible = true }
                         val get = properties.getDeclaredMethod("get", String::class.java, String::class.java).apply { isAccessible = true }
-                        val value = VolumePanelSuppressionLease.propertyValue(shouldSuppressSamsungPanel, panelLeaseNow)
+                        val value = VolumePanelSuppressionLease.propertyValue(shouldSuppressSystemUiPanel, panelLeaseNow)
                         set.invoke(null, VolumePanelSuppressionLease.PROPERTY, value)
                         check(get.invoke(null, VolumePanelSuppressionLease.PROPERTY, "0") == value) {
                             "volume-panel lease property was not retained"
                         }
                     }
                     leaseWrite.onFailure {
-                        callbackWarning = "Samsung volume-panel workaround unavailable"
+                        callbackWarning = "SystemUI volume-panel suppression unavailable"
                     }
                     if (leaseWrite.isSuccess) {
-                        panelLeaseEnabled = shouldSuppressSamsungPanel
+                        panelLeaseEnabled = shouldSuppressSystemUiPanel
                         panelLeaseWritten = true
                         lastPanelLeaseRefreshAt = panelLeaseNow
                     }
@@ -396,7 +396,7 @@ object LightningDspVolumeRoot {
             output.flush()
         } finally {
             remotePanelAllowed.set(false)
-            // Do not leave Samsung's SystemUI panel suppressed if this root bridge exits.
+            // Do not leave SystemUI's panel suppressed if this root bridge exits.
             runCatching {
                 val properties = Class.forName("android.os.SystemProperties")
                 properties.getDeclaredMethod("set", String::class.java, String::class.java)

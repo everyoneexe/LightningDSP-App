@@ -7,12 +7,13 @@ import android.os.SystemClock;
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
+import java.lang.reflect.Method;
 import lightning.dsp.utils.logging.DiagnosticMode;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 /** One UI dispatches its volume panel from SystemUI even when a controller proxy is installed. */
-public final class SamsungVolumePanelHook implements IXposedHookLoadPackage {
+public final class SystemUiVolumePanelHook implements IXposedHookLoadPackage {
     private static final String SYSTEM_UI = "com.android.systemui";
     private static final String[] VOLUME_DIALOG_CONTROLLERS = {
         "com.android.systemui.volume.VolumeDialogControllerImpl",
@@ -24,6 +25,15 @@ public final class SamsungVolumePanelHook implements IXposedHookLoadPackage {
     private static final long LEASE_TTL_MS = 6_000L;
     private static final int FLAG_SHOW_UI = 1;
 
+    /** Only hook the AOSP contract: older releases use (int, int), newer ones add a boolean. */
+    private static boolean isVolumeChangedMethod(Method method) {
+        if (!"onVolumeChangedW".equals(method.getName())) return false;
+        Class<?>[] parameters = method.getParameterTypes();
+        return (parameters.length == 2 || parameters.length == 3)
+                && parameters[0] == int.class && parameters[1] == int.class
+                && (parameters.length == 2 || parameters[2] == boolean.class);
+    }
+
     private static boolean suppressionActive() {
         try {
             Class<?> properties = XposedHelpers.findClass("android.os.SystemProperties", null);
@@ -34,36 +44,44 @@ public final class SamsungVolumePanelHook implements IXposedHookLoadPackage {
             long now = SystemClock.uptimeMillis();
             return refreshedAt > 0 && now >= refreshedAt && now - refreshedAt <= LEASE_TTL_MS;
         } catch (Throwable ignored) {
-            return false; // Missing/stale state preserves Samsung's normal volume panel.
+            return false; // Missing/stale state preserves the native SystemUI volume panel.
         }
     }
 
     @Override public void handleLoadPackage(XC_LoadPackage.LoadPackageParam info) {
-        if (!SYSTEM_UI.equals(info.packageName) || !"samsung".equalsIgnoreCase(Build.MANUFACTURER)) return;
+        if (!SYSTEM_UI.equals(info.packageName)) return;
         try {
+            boolean samsung = "samsung".equalsIgnoreCase(Build.MANUFACTURER);
             Class<?> control = null;
-            for (String name : VOLUME_DIALOG_CONTROLLERS) {
+            int candidateCount = samsung ? VOLUME_DIALOG_CONTROLLERS.length : 1;
+            for (int candidateIndex = 0; candidateIndex < candidateCount; candidateIndex++) {
+                String name = VOLUME_DIALOG_CONTROLLERS[candidateIndex];
                 Class<?> candidate = XposedHelpers.findClassIfExists(name, info.classLoader);
                 if (candidate == null) continue;
-                for (java.lang.reflect.Method method : candidate.getDeclaredMethods()) {
-                    if (method.getName().equals("onVolumeChangedW")) { control = candidate; break; }
+                for (Method method : candidate.getDeclaredMethods()) {
+                    if (isVolumeChangedMethod(method)) { control = candidate; break; }
                 }
                 if (control != null) break;
             }
             if (control == null) {
-                XposedBridge.log("LightningDSP Samsung volume panel: VolumeDialogControl not found; native behavior retained");
+                XposedBridge.log("LightningDSP SystemUI volume panel: supported controller not found; native behavior retained");
                 return;
             }
-            int hooks = XposedBridge.hookAllMethods(control, "onVolumeChangedW", new XC_MethodHook() {
-                @Override protected void beforeHookedMethod(MethodHookParam param) {
-                    if (!suppressionActive() || param.args == null || param.args.length < 2 || !(param.args[1] instanceof Integer))
-                        return;
-                    int flags = (Integer) param.args[1];
-                    if ((flags & FLAG_SHOW_UI) != 0) param.args[1] = flags & ~FLAG_SHOW_UI;
-                }
-            }).size();
+            int hooks = 0;
+            for (Method method : control.getDeclaredMethods()) {
+                if (!isVolumeChangedMethod(method)) continue;
+                XposedBridge.hookMethod(method, new XC_MethodHook() {
+                    @Override protected void beforeHookedMethod(MethodHookParam param) {
+                        if (!suppressionActive() || param.args == null || param.args.length < 2 || !(param.args[1] instanceof Integer))
+                            return;
+                        int flags = (Integer) param.args[1];
+                        if ((flags & FLAG_SHOW_UI) != 0) param.args[1] = flags & ~FLAG_SHOW_UI;
+                    }
+                });
+                hooks++;
+            }
             if (hooks == 0) {
-                XposedBridge.log("LightningDSP Samsung volume panel: onVolumeChangedW not found; native behavior retained");
+                XposedBridge.log("LightningDSP SystemUI volume panel: supported onVolumeChangedW signature not found; native behavior retained");
                 return;
             }
             // Only advertise readiness after a real hook was installed. The app compares
@@ -73,12 +91,12 @@ public final class SamsungVolumePanelHook implements IXposedHookLoadPackage {
             XposedHelpers.callStaticMethod(properties, "set", READY_PROPERTY, pid);
             String readyPid = (String) XposedHelpers.callStaticMethod(properties, "get", READY_PROPERTY, "");
             if (!pid.equals(readyPid)) {
-                XposedBridge.log("LightningDSP Samsung volume panel: readiness property rejected; native behavior retained");
+                XposedBridge.log("LightningDSP SystemUI volume panel: readiness property rejected; native behavior retained");
                 return;
             }
-            if (DiagnosticMode.isEnabled()) XposedBridge.log("LightningDSP Samsung volume panel hook ready pid=" + Process.myPid() + " hooks=" + hooks);
+            if (DiagnosticMode.isEnabled()) XposedBridge.log("LightningDSP SystemUI volume panel hook ready pid=" + Process.myPid() + " hooks=" + hooks);
         } catch (Throwable error) {
-            XposedBridge.log("LightningDSP Samsung volume panel hook unavailable; native behavior retained");
+            XposedBridge.log("LightningDSP SystemUI volume panel hook unavailable; native behavior retained");
             if (DiagnosticMode.isEnabled()) XposedBridge.log(error);
         }
     }
