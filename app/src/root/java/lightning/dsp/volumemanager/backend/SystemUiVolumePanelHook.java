@@ -57,16 +57,31 @@ public final class SystemUiVolumePanelHook implements IXposedHookLoadPackage {
 
     @Override public void handleLoadPackage(XC_LoadPackage.LoadPackageParam info) {
         if (!SYSTEM_UI.equals(info.packageName)) return;
-        if (Build.VERSION.SDK_INT >= 30) {
-            XposedHelpers.findAndHookMethod(Application.class, "onCreate", new XC_MethodHook() {
-                @Override protected void afterHookedMethod(MethodHookParam param) {
-                    if (!(param.thisObject instanceof Application)) return;
-                    Application application = (Application) param.thisObject;
-                    SystemUiVolumeSurfaceHost.install(application);
-                    installVolumeController(application.getClassLoader(), 0);
-                }
-            });
+        if (Build.VERSION.SDK_INT < 30) return;
+        // Vector's legacy bridge can load this hook after SystemUI's Application.onCreate.
+        // A hook placed on onCreate would then never run, leaving the stock dialog forever.
+        Handler main = new Handler(Looper.getMainLooper());
+        main.postDelayed(() -> initializeSystemUi(0), CONTROLLER_RETRY_MS);
+    }
+
+    private static void initializeSystemUi(int attempt) {
+        if (volumeHookInstalled) return;
+        Application application = null;
+        try {
+            Class<?> activityThread = XposedHelpers.findClass("android.app.ActivityThread", null);
+            application = (Application) XposedHelpers.callStaticMethod(activityThread, "currentApplication");
+        } catch (Throwable ignored) { /* ActivityThread may not publish the Application yet. */ }
+        if (application == null) {
+            if (attempt + 1 < CONTROLLER_ATTEMPTS) {
+                new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> initializeSystemUi(attempt + 1), CONTROLLER_RETRY_MS);
+            } else {
+                XposedBridge.log("LightningDSP SystemUI volume panel: application unavailable after startup retries; native behavior retained");
+            }
+            return;
         }
+        SystemUiVolumeSurfaceHost.install(application);
+        installVolumeController(application.getClassLoader(), 0);
     }
 
     /** SystemUI's concrete controller is not reliably resolvable during handleLoadPackage. */

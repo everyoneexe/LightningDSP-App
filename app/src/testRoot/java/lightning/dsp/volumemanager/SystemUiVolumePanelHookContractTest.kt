@@ -1,6 +1,7 @@
 package lightning.dsp.volumemanager
 
 import java.io.File
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -24,6 +25,9 @@ class SystemUiVolumePanelHookContractTest {
         assertTrue(hook.contains("installVolumeController(application.getClassLoader(), 0)"))
         assertTrue(hook.contains("CONTROLLER_ATTEMPTS = 4"))
         assertTrue(hook.contains("CONTROLLER_RETRY_MS = 500L"))
+        assertTrue(hook.contains("ActivityThread\", null)"))
+        assertTrue(hook.contains("currentApplication"))
+        assertFalse(hook.contains("findAndHookMethod(Application.class, \"onCreate\""))
         assertTrue(hook.contains("int candidateCount = samsung ? VOLUME_DIALOG_CONTROLLERS.length : 1"))
         assertTrue(hook.contains("parameters.length == 2 || parameters.length == 3"))
         assertTrue(hook.contains("XposedBridge.hookMethod(method"))
