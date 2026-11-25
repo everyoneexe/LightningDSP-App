@@ -28,7 +28,7 @@ import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import androidx.annotation.RequiresApi;
-import de.robv.android.xposed.XposedBridge;
+import lightning.dsp.xposed.HookPlatform;
 
 /** A SystemUI-owned volume window; app-owned views are embedded, never executed in SystemUI. */
 @RequiresApi(api = Build.VERSION_CODES.R)
@@ -50,7 +50,7 @@ public final class SystemUiVolumeSurfaceHost {
 
     private static synchronized void warn(String stage, Throwable error) {
         if (warnings++ >= 4) return;
-        XposedBridge.log("LightningDSP SystemUI volume surface unavailable at " + stage + ": " +
+        HookPlatform.log("LightningDSP SystemUI volume surface unavailable at " + stage + ": " +
                 (error == null ? "unavailable" : error.getClass().getSimpleName()) + "; stock UI retained");
     }
     private final Handler main = new Handler(Looper.getMainLooper());

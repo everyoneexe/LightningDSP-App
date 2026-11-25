@@ -74,7 +74,7 @@ class SystemUiVolumeSurfaceHostContractTest {
     }
 
     @Test fun failedSurfaceReplaysOnlyVerifiedStockCallbackAndDragKeepsPanelAlive() {
-        assertTrue(hook.contains("XposedBridge.invokeOriginalMethod(method, controller, originalArgs)"))
+        assertTrue(hook.contains("backend.invokeOriginal(method, controller, originalArgs)"))
         assertTrue(hook.contains("new Handler(callbackLooper)"))
         assertFalse(host.contains("adjustStreamVolume"))
         assertFalse(host.contains("adjustVolume("))

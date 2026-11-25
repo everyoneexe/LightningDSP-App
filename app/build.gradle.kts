@@ -8,6 +8,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization") version "2.1.0"
 }
 
+// Select exactly one hook transport per root APK; keep older frameworks working
+// unless explicitly assembling a modern API test build.
+val modernXposed = providers.gradleProperty("lightningdsp.modernXposed").map { it.toBooleanStrict() }.orElse(false).get()
+val xposedSources = if (modernXposed) "src/xposedModern" else "src/xposedLegacy"
+
 android {
 
     val SUPPORTED_ABIS = setOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
@@ -115,6 +120,15 @@ android {
     }
 
     sourceSets {
+        getByName("root").apply {
+            java.srcDir("$xposedSources/java")
+            assets.srcDir("$xposedSources/assets")
+            resources.srcDir("$xposedSources/resources")
+        }
+        if (modernXposed) {
+            maybeCreate("rootFull").manifest.srcFile("$xposedSources/AndroidManifest.xml")
+            maybeCreate("rootFdroid").manifest.srcFile("$xposedSources/AndroidManifest.xml")
+        }
         // Use different app icon for non-release builds
         getByName("debug").res.srcDirs("src/debug/res")
     }
@@ -164,7 +178,8 @@ android {
 }
 
 dependencies {
-    add("rootCompileOnly", "de.robv.android.xposed:api:82")
+    add("rootCompileOnly", if (modernXposed) "io.github.libxposed:api:102.0.0"
+        else "de.robv.android.xposed:api:82")
     // Compose is scoped to the root Volume Manager UI; other flavors keep their existing screens.
     "rootImplementation"(platform("androidx.compose:compose-bom:2024.12.01"))
     "rootImplementation"("androidx.activity:activity-compose:1.10.0")

@@ -11,23 +11,34 @@ class AudioCompatibilityLoadGateTest {
 
     @Test fun disabledOptionDoesNotLoadTheNativeHook() {
         val source = File(app, "src/root/java/lightning/dsp/interop/AudioCompatibilityHook.java").readText()
-        val handle = source.substringAfter("@Override public void handleLoadPackage(")
+        val handle = source.substringAfter("public static void install(HookBackend backend,")
         val guard = handle.indexOf("if (!aaudioRequested && !sessionReuseEnabled && !sessionPreparationEnabled)")
         val load = handle.indexOf("System.loadLibrary(\"ldsp_aaudio_compat\")")
         assertTrue("the opt-in gate must precede native library loading", guard >= 0 && load > guard)
         assertTrue(handle.substring(guard, load).contains("return;"))
-        assertTrue(source.contains("return \"1\".equals(XposedHelpers.callStaticMethod"))
+        assertTrue(source.contains("return \"1\".equals(HookPlatform.property"))
     }
 
     @Test fun sessionPreparationHooksAudioTrackBeforePlaybackWithoutLoadingTheNativePatch() {
         val source = File(app, "src/root/java/lightning/dsp/interop/AudioCompatibilityHook.java").readText()
-        val handle = source.substringAfter("@Override public void handleLoadPackage(")
-        assertTrue(handle.indexOf("if (sessionPreparationEnabled) installAudioTrackPreparationHook();") <
+        val handle = source.substringAfter("public static void install(HookBackend backend,")
+        assertTrue(handle.indexOf("if (sessionPreparationEnabled) installAudioTrackPreparationHook(backend);") <
             handle.indexOf("System.loadLibrary(\"ldsp_aaudio_compat\")"))
-        assertTrue(source.contains("findAndHookMethod(\"android.media.AudioTrack\", null, \"play\""))
-        assertTrue(source.contains("beforeHookedMethod(MethodHookParam param)"))
+        assertTrue(source.contains("HookPlatform.method(android.media.AudioTrack.class, \"play\""))
+        assertTrue(source.contains("HookBackend.LOWEST_PRIORITY, param ->"))
         assertTrue(source.contains("\"prepare_session\""))
         assertTrue(source.contains("Looper.myLooper() == Looper.getMainLooper()"))
+    }
+
+    @Test fun sharedEntryRetainsPlatformAndAppIdentityGatesWithoutLegacyApiReferences() {
+        val source = File(app, "src/root/java/lightning/dsp/interop/AudioCompatibilityHook.java").readText()
+        assertFalse(source.contains("de.robv.android.xposed"))
+        assertFalse(source.contains("XposedHelpers"))
+        assertTrue(source.contains("isPlatformHookTarget(packageName, processName)"))
+        assertTrue(source.contains("appId < 10000 || appId >= 20000 || appInfo == null"))
+        assertTrue(source.contains("appInfo.flags & ApplicationInfo.FLAG_SYSTEM"))
+        assertTrue(source.contains("if (param.receiver instanceof Application) trackFocus"))
+        assertTrue(source.contains("backend.after(HookPlatform.method(Application.class"))
     }
 
     @Test fun nativeInitAlsoRequiresOptInBeforeInstallingHooks() {
@@ -39,19 +50,19 @@ class AudioCompatibilityLoadGateTest {
         assertFalse("libaaudio entry points must not be inline patched", source.contains("api->hook("))
     }
 
-    @Test fun childLaunchAdapterPreservesTheScopedOptInAndNormalXposedChain() {
+    @Test fun childLaunchAdapterPreservesTheScopedOptInAndNormalHookChain() {
         val source = File(app, "src/root/java/lightning/dsp/interop/AudioCompatibilityHook.java").readText()
-        val entry = source.substringAfter("@Override public void handleLoadPackage(")
-        assertTrue(entry.indexOf("if (!aaudioRequested && !sessionReuseEnabled && !sessionPreparationEnabled)") < entry.indexOf("installLaunchHook();"))
-        assertTrue(entry.indexOf("info.appInfo.flags & ApplicationInfo.FLAG_SYSTEM") < entry.indexOf("installLaunchHook();"))
-        assertTrue(source.contains("findAndHookMethod(\"java.lang.ProcessImpl\", null, \"start\","))
+        val entry = source.substringAfter("public static void install(HookBackend backend,")
+        assertTrue(entry.indexOf("if (!aaudioRequested && !sessionReuseEnabled && !sessionPreparationEnabled)") < entry.indexOf("installLaunchHook(backend);"))
+        assertTrue(entry.indexOf("appInfo.flags & ApplicationInfo.FLAG_SYSTEM") < entry.indexOf("installLaunchHook(backend);"))
+        assertTrue(source.contains("HookPlatform.findClass(\"java.lang.ProcessImpl\", null), \"start\","))
         assertTrue(source.contains("String[].class, Map.class, String.class, ProcessBuilder.Redirect[].class,"))
-        assertTrue(source.contains("boolean.class, new XC_MethodHook(Integer.MIN_VALUE)"))
+        assertTrue(source.contains("boolean.class), HookBackend.LOWEST_PRIORITY"))
         assertTrue(source.contains("() -> new ProcessBuilder().environment()"))
         assertTrue(source.contains("param.args[1] = adapted"))
         assertFalse(source.contains("param.args ="))
-        val launch = source.substringAfter("private static void installLaunchHook()")
-            .substringBefore("@Override public void handleLoadPackage")
+        val launch = source.substringAfter("private static void installLaunchHook(HookBackend backend)")
+            .substringBefore("public static void install(HookBackend backend,")
         assertFalse(launch.contains("afterHookedMethod"))
         assertFalse(source.contains("invokeOriginalMethod"))
         assertFalse(source.contains("XC_MethodReplacement"))

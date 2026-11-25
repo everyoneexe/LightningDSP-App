@@ -3,36 +3,32 @@ package lightning.dsp.volumemanager.focus;
 import android.media.AudioAttributes;
 import android.media.AudioManager;
 
-import de.robv.android.xposed.IXposedHookLoadPackage;
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
 import lightning.dsp.utils.logging.DiagnosticMode;
-import de.robv.android.xposed.XposedHelpers;
-import de.robv.android.xposed.callbacks.XC_LoadPackage;
-import java.util.Set;
+import lightning.dsp.xposed.HookBackend;
+import lightning.dsp.xposed.HookPlatform;
+import java.lang.reflect.Method;
 
 /** Optional system_server hook. The runtime property defaults to off. */
-public final class DisableAudioFocusHook implements IXposedHookLoadPackage {
+public final class DisableAudioFocusHook {
     private static final String PROPERTY = "debug.lightningdsp.disable_audio_focus";
     private static final String READY = "debug.lightningdsp.audio_focus_hook_pid";
 
-    @Override public void handleLoadPackage(XC_LoadPackage.LoadPackageParam packageInfo) {
-        if (!DisableAudioFocusTarget.isFrameworkPackage(packageInfo.packageName)) return;
-        Class<?> focusControl = XposedHelpers.findClassIfExists(
-                "com.android.server.audio.MediaFocusControl", packageInfo.classLoader);
+    public static void install(HookBackend backend, String packageName, ClassLoader loader) {
+        if (!DisableAudioFocusTarget.isFrameworkPackage(packageName)) return;
+        Class<?> focusControl = HookPlatform.findClassIfExists(
+                "com.android.server.audio.MediaFocusControl", loader);
         if (focusControl == null) {
-            XposedBridge.log("LightningDSP AudioFocus: MediaFocusControl missing in " + packageInfo.packageName);
+            HookPlatform.log("LightningDSP AudioFocus: MediaFocusControl missing in " + packageName);
             return;
         }
         try {
-            Set<XC_MethodHook.Unhook> hooks = XposedBridge.hookAllMethods(
-                    focusControl, "requestAudioFocus", new XC_MethodHook() {
-                @Override protected void beforeHookedMethod(MethodHookParam param) {
+            int hooks = 0;
+            for (Method method : focusControl.getDeclaredMethods()) {
+                if (!"requestAudioFocus".equals(method.getName())) continue;
+                backend.before(method, HookBackend.DEFAULT_PRIORITY, param -> {
                     boolean enabled;
                     try {
-                        enabled = (boolean) XposedHelpers.callStaticMethod(
-                                XposedHelpers.findClass("android.os.SystemProperties", null),
-                                "getBoolean", PROPERTY, false);
+                        enabled = HookPlatform.propertyBoolean(PROPERTY, false);
                     } catch (Throwable ignored) {
                         return; // Unknown framework behavior: retain the original focus policy.
                     }
@@ -49,28 +45,26 @@ public final class DisableAudioFocusHook implements IXposedHookLoadPackage {
                     if (attributes == null || attributes.getUsage() == AudioAttributes.USAGE_VOICE_COMMUNICATION)
                         return;
                     param.setResult(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
-                }
-            });
-            if (hooks.isEmpty()) {
-                XposedBridge.log("LightningDSP AudioFocus: requestAudioFocus method missing in " + packageInfo.packageName);
+                });
+                hooks++;
+            }
+            if (hooks == 0) {
+                HookPlatform.log("LightningDSP AudioFocus: requestAudioFocus method missing in " + packageName);
                 return;
             }
             // A volatile, PID-bound acknowledgement lets the app distinguish an active
             // hook from mere installation or a stale marker after system_server restarts.
-            XposedHelpers.callStaticMethod(
-                    XposedHelpers.findClass("android.os.SystemProperties", null),
-                    "set", READY, Integer.toString(android.os.Process.myPid()));
-            String readyPid = (String) XposedHelpers.callStaticMethod(
-                    XposedHelpers.findClass("android.os.SystemProperties", null), "get", READY, "");
+            HookPlatform.setProperty(READY, Integer.toString(android.os.Process.myPid()));
+            String readyPid = HookPlatform.property(READY, "");
             if (!Integer.toString(android.os.Process.myPid()).equals(readyPid)) {
-                XposedBridge.log("LightningDSP AudioFocus: readiness property rejected in " + packageInfo.packageName);
+                HookPlatform.log("LightningDSP AudioFocus: readiness property rejected in " + packageName);
                 return;
             }
-            if (DiagnosticMode.isEnabled()) XposedBridge.log("LightningDSP AudioFocus hook ready in " + packageInfo.packageName
-                    + " pid=" + readyPid + " hooks=" + hooks.size());
+            if (DiagnosticMode.isEnabled()) HookPlatform.log("LightningDSP AudioFocus hook ready in " + packageName
+                    + " pid=" + readyPid + " hooks=" + hooks);
         } catch (Throwable error) {
-            XposedBridge.log("LightningDSP AudioFocus: hook setup failed in " + packageInfo.packageName);
-            if (DiagnosticMode.isEnabled()) XposedBridge.log(error);
+            HookPlatform.log("LightningDSP AudioFocus: hook setup failed in " + packageName);
+            if (DiagnosticMode.isEnabled()) HookPlatform.log(error);
         }
     }
 

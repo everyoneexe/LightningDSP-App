@@ -78,6 +78,49 @@ jobs:
           grep -E "^package: name='com.lightning.dsp' " "$RUNNER_TEMP/apk-badging.txt"
           git rev-parse HEAD > dist/SOURCE-COMMIT.txt
           (cd dist && sha256sum LightningDSP-root-universal.apk > SHA256SUMS.txt)
+      - name: Test and build libxposed API 102 candidate
+        run: ./gradlew --no-daemon --max-workers=2 -Plightningdsp.modernXposed=true :app:testRootFullReleaseUnitTest :app:assembleRootFullRelease
+      - name: Sign and verify the libxposed API 102 candidate
+        env:
+          SIGNING_KEYSTORE: ${{ secrets.SIGNING_KEYSTORE }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SIGNING_KEYSTORE" && test -n "$KEY_ALIAS"
+          tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          key="$RUNNER_TEMP/owner-keystore-modern"
+          trap 'rm -f "$key"' EXIT
+          umask 077
+          printf '%s' "$SIGNING_KEYSTORE" | base64 --decode > "$key"
+          input=$(python3 - <<'PYMETA'
+          import json
+          from pathlib import Path
+          root = Path('app/build/outputs/apk/rootFull/release')
+          metadata = json.loads((root / 'output-metadata.json').read_text())
+          outputs = [entry for entry in metadata['elements'] if not entry.get('filters')]
+          assert len(outputs) == 1, 'Expected exactly one universal APK output'
+          path = root / outputs[0]['outputFile']
+          assert path.is_file() and path.resolve().parent == root.resolve()
+          print(path)
+          PYMETA
+          )
+          "$tools/apksigner" sign --ks "$key" --ks-type PKCS12 --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
+            --out dist/LightningDSP-root-universal-libxposed102.apk "$input"
+          "$tools/apksigner" verify --print-certs dist/LightningDSP-root-universal-libxposed102.apk > "$RUNNER_TEMP/modern-certificate.txt"
+          python3 - <<'PYCERT'
+          import os, re
+          from pathlib import Path
+          output = (Path(os.environ['RUNNER_TEMP']) / 'modern-certificate.txt').read_text()
+          digests = re.findall(r'certificate SHA-256 digest:\s*([0-9a-fA-F]{64})', output)
+          assert len(digests) == 1 and digests[0].lower() == 'c18c2d21eee51c357d9485c781be9bf201131c6fa94bab97b93c94b710c40357', 'Unauthorized APK signer'
+          PYCERT
+          "$tools/aapt" dump badging dist/LightningDSP-root-universal-libxposed102.apk > "$RUNNER_TEMP/modern-badging.txt"
+          grep -E "^package: name='com.lightning.dsp' versionCode='146' versionName='1.7.2'" "$RUNNER_TEMP/modern-badging.txt"
+          (cd dist && sha256sum LightningDSP-root-universal.apk LightningDSP-root-universal-libxposed102.apk > SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         with:
           name: LightningDSP-root-universal-${{ github.sha }}
@@ -85,5 +128,6 @@ jobs:
           retention-days: 30
           path: |
             dist/LightningDSP-root-universal.apk
+            dist/LightningDSP-root-universal-libxposed102.apk
             dist/SHA256SUMS.txt
             dist/SOURCE-COMMIT.txt

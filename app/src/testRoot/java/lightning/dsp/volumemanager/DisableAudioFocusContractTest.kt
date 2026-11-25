@@ -11,13 +11,12 @@ class DisableAudioFocusContractTest {
 
     @Test fun hookIsRootOnlyAndScopedToFramework() {
         val manifest = File(app, "src/root/AndroidManifest.xml").readText()
-        val entry = File(app, "src/root/assets/xposed_init").readText().trim()
         val hook = File(app, "src/root/java/lightning/dsp/volumemanager/focus/DisableAudioFocusHook.java").readText()
         assertTrue(manifest.contains("android:name=\"xposedscope\" android:value=\"android;com.android.systemui\""))
-        assertEquals(listOf("lightning.dsp.volumemanager.focus.DisableAudioFocusHook",
-            "lightning.dsp.interop.AudioCompatibilityHook",
-            "lightning.dsp.volumemanager.backend.SystemUiVolumePanelHook"), entry.lines())
-        assertTrue(hook.contains("DisableAudioFocusTarget.isFrameworkPackage(packageInfo.packageName)"))
+        assertTrue(hook.contains("public static void install(HookBackend backend, String packageName, ClassLoader loader)"))
+        assertTrue(hook.contains("DisableAudioFocusTarget.isFrameworkPackage(packageName)"))
+        assertTrue(hook.contains("backend.before(method, HookBackend.DEFAULT_PRIORITY"))
+        assertFalse(hook.contains("de.robv.android.xposed"))
         val target = File(app, "src/root/java/lightning/dsp/volumemanager/focus/DisableAudioFocusTarget.kt").readText()
         assertTrue(target.contains("packageName == \"android\" || packageName == \"system\""))
         assertTrue(hook.contains("USAGE_VOICE_COMMUNICATION"))
@@ -38,6 +37,9 @@ class DisableAudioFocusContractTest {
         assertTrue(option.contains("debug.lightningdsp.disable_audio_focus"))
         assertTrue(hook.contains("debug.lightningdsp.disable_audio_focus"))
         assertTrue(hook.contains("debug.lightningdsp.audio_focus_hook_pid"))
+        assertTrue(hook.contains("HookPlatform.propertyBoolean(PROPERTY, false)"))
+        assertTrue(hook.contains("HookPlatform.setProperty(READY, Integer.toString(android.os.Process.myPid()))"))
+        assertTrue(hook.contains("if (!Integer.toString(android.os.Process.myPid()).equals(readyPid))"))
         val settings = File(app, "src/root/java/lightning/dsp/volumemanager/ui/LightningDspVolumeManagerActivity.kt").readText()
         assertTrue(settings.contains("val available = DisableAudioFocusOption.available()"))
         assertTrue(settings.contains("audioFocusSwitch.isEnabled = available"))

@@ -7,17 +7,15 @@ import android.app.Application;
 import android.os.Handler;
 import android.os.Looper;
 
-import de.robv.android.xposed.IXposedHookLoadPackage;
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
 import java.lang.reflect.Method;
+import java.util.concurrent.atomic.AtomicBoolean;
+import lightning.dsp.xposed.HookBackend;
+import lightning.dsp.xposed.HookPlatform;
 import lightning.dsp.utils.logging.DiagnosticMode;
 import lightning.dsp.volumemanager.surface.SystemUiVolumeSurfaceHost;
-import de.robv.android.xposed.XposedHelpers;
-import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 /** Keep verified SystemUI volume dispatch while a live app-owned surface is hosted in its window. */
-public final class SystemUiVolumePanelHook implements IXposedHookLoadPackage {
+public final class SystemUiVolumePanelHook {
     private static final String SYSTEM_UI = "com.android.systemui";
     private static final String[] VOLUME_DIALOG_CONTROLLERS = {
         "com.android.systemui.volume.VolumeDialogControllerImpl",
@@ -33,6 +31,7 @@ public final class SystemUiVolumePanelHook implements IXposedHookLoadPackage {
     // Keep retries bounded to 10 s per initialization stage, then fail open to stock.
     private static final int CONTROLLER_ATTEMPTS = 20;
     private static final int FLAG_SHOW_UI = 1;
+    private static final AtomicBoolean startupScheduled = new AtomicBoolean();
     private static boolean volumeHookInstalled;
 
     /** Only hook the AOSP contract: older releases use (int, int), newer ones add a boolean. */
@@ -46,10 +45,9 @@ public final class SystemUiVolumePanelHook implements IXposedHookLoadPackage {
 
     private static boolean suppressionActive() {
         try {
-            Class<?> properties = XposedHelpers.findClass("android.os.SystemProperties", null);
-            if (!(Boolean) XposedHelpers.callStaticMethod(properties, "getBoolean", ENABLED_PROPERTY, false))
+            if (!HookPlatform.propertyBoolean(ENABLED_PROPERTY, false))
                 return false;
-            String value = (String) XposedHelpers.callStaticMethod(properties, "get", LEASE_PROPERTY, "0");
+            String value = HookPlatform.property(LEASE_PROPERTY, "0");
             long refreshedAt = Long.parseLong(value);
             long now = SystemClock.uptimeMillis();
             return refreshedAt > 0 && now >= refreshedAt && now - refreshedAt <= LEASE_TTL_MS;
@@ -58,50 +56,51 @@ public final class SystemUiVolumePanelHook implements IXposedHookLoadPackage {
         }
     }
 
-    @Override public void handleLoadPackage(XC_LoadPackage.LoadPackageParam info) {
+    public static void install(HookBackend backend, String packageName, String processName) {
         // SystemUI also runs auxiliary processes (for example :screenshot).
         // Only its main process owns the volume dialog and may host our window.
-        if (!SYSTEM_UI.equals(info.packageName) || !SYSTEM_UI.equals(info.processName)) return;
+        if (!SYSTEM_UI.equals(packageName) || !SYSTEM_UI.equals(processName)) return;
         if (Build.VERSION.SDK_INT < 30) return;
+        // Package-ready can be dispatched again as its splits are loaded.
+        // Do not clear a live readiness receipt or spawn a second startup chain.
+        if (!startupScheduled.compareAndSet(false, true)) return;
         clearReadinessMarker();
-        // Vector's legacy bridge can load this hook after SystemUI's Application.onCreate.
+        // A framework can load this hook after SystemUI's Application.onCreate.
         // A hook placed on onCreate would then never run, leaving the stock dialog forever.
         Handler main = new Handler(Looper.getMainLooper());
-        main.postDelayed(() -> initializeSystemUi(0), CONTROLLER_RETRY_MS);
+        main.postDelayed(() -> initializeSystemUi(backend, 0), CONTROLLER_RETRY_MS);
     }
 
     /** Do not leave a dead SystemUI PID advertised while this process reinitializes. */
     private static void clearReadinessMarker() {
         try {
-            Class<?> properties = XposedHelpers.findClass("android.os.SystemProperties", null);
-            XposedHelpers.callStaticMethod(properties, "set", READY_PROPERTY, "0");
+            HookPlatform.setProperty(READY_PROPERTY, "0");
         } catch (Throwable error) {
-            XposedBridge.log("LightningDSP SystemUI volume panel: could not clear stale readiness marker");
+            HookPlatform.log("LightningDSP SystemUI volume panel: could not clear stale readiness marker");
         }
     }
 
-    private static void initializeSystemUi(int attempt) {
+    private static void initializeSystemUi(HookBackend backend, int attempt) {
         if (volumeHookInstalled) return;
         Application application = null;
         try {
-            Class<?> activityThread = XposedHelpers.findClass("android.app.ActivityThread", null);
-            application = (Application) XposedHelpers.callStaticMethod(activityThread, "currentApplication");
+            application = HookPlatform.currentApplication();
         } catch (Throwable ignored) { /* ActivityThread may not publish the Application yet. */ }
         if (application == null) {
             if (attempt + 1 < CONTROLLER_ATTEMPTS) {
                 new Handler(Looper.getMainLooper()).postDelayed(
-                    () -> initializeSystemUi(attempt + 1), CONTROLLER_RETRY_MS);
+                    () -> initializeSystemUi(backend, attempt + 1), CONTROLLER_RETRY_MS);
             } else {
-                XposedBridge.log("LightningDSP SystemUI volume panel: application unavailable after startup retries; native behavior retained");
+                HookPlatform.log("LightningDSP SystemUI volume panel: application unavailable after startup retries; native behavior retained");
             }
             return;
         }
         SystemUiVolumeSurfaceHost.install(application);
-        installVolumeController(application.getClassLoader(), 0);
+        installVolumeController(backend, application.getClassLoader(), 0);
     }
 
-    /** SystemUI's concrete controller is not reliably resolvable during handleLoadPackage. */
-    private static void installVolumeController(ClassLoader loader, int attempt) {
+    /** SystemUI's concrete controller is not reliably resolvable during package loading. */
+    private static void installVolumeController(HookBackend backend, ClassLoader loader, int attempt) {
         if (volumeHookInstalled) return;
         try {
             boolean samsung = "samsung".equalsIgnoreCase(Build.MANUFACTURER);
@@ -109,7 +108,7 @@ public final class SystemUiVolumePanelHook implements IXposedHookLoadPackage {
             int candidateCount = samsung ? VOLUME_DIALOG_CONTROLLERS.length : 1;
             for (int candidateIndex = 0; candidateIndex < candidateCount; candidateIndex++) {
                 String name = VOLUME_DIALOG_CONTROLLERS[candidateIndex];
-                Class<?> candidate = XposedHelpers.findClassIfExists(name, loader);
+                Class<?> candidate = HookPlatform.findClassIfExists(name, loader);
                 if (candidate == null) continue;
                 for (Method method : candidate.getDeclaredMethods()) {
                     if (isVolumeChangedMethod(method)) { control = candidate; break; }
@@ -119,74 +118,71 @@ public final class SystemUiVolumePanelHook implements IXposedHookLoadPackage {
             if (control == null) {
                 if (attempt + 1 < CONTROLLER_ATTEMPTS) {
                     new Handler(Looper.getMainLooper()).postDelayed(
-                        () -> installVolumeController(loader, attempt + 1), CONTROLLER_RETRY_MS);
+                        () -> installVolumeController(backend, loader, attempt + 1), CONTROLLER_RETRY_MS);
                 } else {
-                    XposedBridge.log("LightningDSP SystemUI volume panel: controller unavailable after startup retries; native behavior retained");
+                    HookPlatform.log("LightningDSP SystemUI volume panel: controller unavailable after startup retries; native behavior retained");
                 }
                 return;
             }
             int hooks = 0;
             for (Method method : control.getDeclaredMethods()) {
                 if (!isVolumeChangedMethod(method)) continue;
-                XposedBridge.hookMethod(method, new XC_MethodHook() {
-                    @Override protected void beforeHookedMethod(MethodHookParam param) {
-                        if (Build.VERSION.SDK_INT < 30) return;
-                        if (param.args == null || param.args.length < 2 || !(param.args[1] instanceof Integer)) return;
-                        // Capture the exact platform callback, not a second volume adjustment. The
-                        // root proxy may already have stripped SHOW_UI before SystemUI receives it.
-                        Looper callbackLooper = Looper.myLooper();
-                        if (callbackLooper != null) {
-                            final Handler callbackHandler = new Handler(callbackLooper);
-                            final Object controller = param.thisObject;
-                            final Object[] originalArgs = param.args.clone();
-                            originalArgs[1] = ((Integer) originalArgs[1]) | FLAG_SHOW_UI;
-                            SystemUiVolumeSurfaceHost.setStockFallback(() -> callbackHandler.post(() -> {
-                                try { XposedBridge.invokeOriginalMethod(method, controller, originalArgs); }
-                                catch (Throwable ignored) { /* Unsupported native callback remains untouched. */ }
-                            }));
-                        }
-                        int flags = (Integer) param.args[1];
-                        if (!suppressionActive()) {
-                            if (!SystemUiVolumeSurfaceHost.isReady() && (flags & FLAG_SHOW_UI) != 0)
-                                SystemUiVolumeSurfaceHost.warmFromVolumeEvent();
-                            return;
-                        }
-                        if (!SystemUiVolumeSurfaceHost.isReady()) {
-                            if ((flags & FLAG_SHOW_UI) != 0) {
-                                // Queue this request through the bounded surface attach. On
-                                // failure the host replays this exact stock callback once.
-                                SystemUiVolumeSurfaceHost.showFromVolumeEvent();
-                                param.args[1] = flags & ~FLAG_SHOW_UI;
-                            }
-                            return;
-                        }
+                backend.before(method, HookBackend.DEFAULT_PRIORITY, param -> {
+                    if (Build.VERSION.SDK_INT < 30) return;
+                    if (param.args == null || param.args.length < 2 || !(param.args[1] instanceof Integer)) return;
+                    // Capture the exact platform callback, not a second volume adjustment. The
+                    // root proxy may already have stripped SHOW_UI before SystemUI receives it.
+                    Looper callbackLooper = Looper.myLooper();
+                    if (callbackLooper != null) {
+                        final Handler callbackHandler = new Handler(callbackLooper);
+                        final Object controller = param.receiver;
+                        final Object[] originalArgs = param.args.clone();
+                        originalArgs[1] = ((Integer) originalArgs[1]) | FLAG_SHOW_UI;
+                        SystemUiVolumeSurfaceHost.setStockFallback(() -> callbackHandler.post(() -> {
+                            try { backend.invokeOriginal(method, controller, originalArgs); }
+                            catch (Throwable ignored) { /* Unsupported native callback remains untouched. */ }
+                        }));
+                    }
+                    int flags = (Integer) param.args[1];
+                    if (!suppressionActive()) {
+                        if (!SystemUiVolumeSurfaceHost.isReady() && (flags & FLAG_SHOW_UI) != 0)
+                            SystemUiVolumeSurfaceHost.warmFromVolumeEvent();
+                        return;
+                    }
+                    if (!SystemUiVolumeSurfaceHost.isReady()) {
                         if ((flags & FLAG_SHOW_UI) != 0) {
+                            // Queue this request through the bounded surface attach. On
+                            // failure the host replays this exact stock callback once.
                             SystemUiVolumeSurfaceHost.showFromVolumeEvent();
                             param.args[1] = flags & ~FLAG_SHOW_UI;
                         }
+                        return;
+                    }
+                    if ((flags & FLAG_SHOW_UI) != 0) {
+                        SystemUiVolumeSurfaceHost.showFromVolumeEvent();
+                        param.args[1] = flags & ~FLAG_SHOW_UI;
                     }
                 });
                 hooks++;
             }
             if (hooks == 0) {
-                XposedBridge.log("LightningDSP SystemUI volume panel: supported onVolumeChangedW signature not found; native behavior retained");
+                HookPlatform.log("LightningDSP SystemUI volume panel: supported onVolumeChangedW signature not found; native behavior retained");
                 return;
             }
             // Only advertise readiness after a real hook was installed. The app compares
             // this PID with the live SystemUI process before allowing the option to be enabled.
-            Class<?> properties = XposedHelpers.findClass("android.os.SystemProperties", null);
             String pid = Integer.toString(Process.myPid());
-            XposedHelpers.callStaticMethod(properties, "set", READY_PROPERTY, pid);
-            String readyPid = (String) XposedHelpers.callStaticMethod(properties, "get", READY_PROPERTY, "");
+            HookPlatform.setProperty(READY_PROPERTY, pid);
+            String readyPid = HookPlatform.property(READY_PROPERTY, "");
             if (!pid.equals(readyPid)) {
-                XposedBridge.log("LightningDSP SystemUI volume panel: readiness property rejected; native behavior retained");
+                HookPlatform.log("LightningDSP SystemUI volume panel: readiness property rejected; native behavior retained");
                 return;
             }
             volumeHookInstalled = true;
-            if (DiagnosticMode.isEnabled()) XposedBridge.log("LightningDSP SystemUI volume panel hook ready pid=" + Process.myPid() + " hooks=" + hooks);
+            if (DiagnosticMode.isEnabled()) HookPlatform.log("LightningDSP SystemUI volume panel hook ready pid=" + Process.myPid() + " hooks=" + hooks);
         } catch (Throwable error) {
-            XposedBridge.log("LightningDSP SystemUI volume panel hook unavailable; native behavior retained");
-            if (DiagnosticMode.isEnabled()) XposedBridge.log(error);
+            HookPlatform.log("LightningDSP SystemUI volume panel hook unavailable; native behavior retained");
+            if (DiagnosticMode.isEnabled()) HookPlatform.log(error);
         }
     }
 }
