@@ -15,6 +15,25 @@ metadata, SysV/GNU hashes, imported symbol identity, slot/page uniqueness, prior
 import modifications, RELRO, writable data, protection failures, CAS conflicts,
 rollback, and builder direction/performance observation guards.
 
+### On-device OpenSL route probe
+
+`opensl_route_probe.c` is a standalone Android test player, not part of the APK.
+With the Android NDK ARM64 API 26 compiler on `PATH`, build it once:
+
+```sh
+aarch64-linux-android26-clang -std=c11 -O2 -Wall -Wextra -Werror \
+  app/src/main/cpp/aaudio-compat/tests/opensl_route_probe.c \
+  -lOpenSLES -lm -o /tmp/ldsp-opensl-route-probe
+```
+
+Run the same binary as the ADB shell user with `latency-effects` or `none`.
+Each invocation plays a quiet stereo tone for six seconds and prints its PID
+and the requested and realized performance modes. Match that PID to the
+session in `dumpsys audio`, then check the track and effect chain in
+`dumpsys media.audio_flinger`. Check that the physical output is the same
+between runs. The shell player's result does not prove a third-party app will
+use that route; AudioFlinger latency estimates are not loopback measurements.
+
 The hook tests also verify the loaded-library sweep's path filtering. At runtime,
 the Xposed entry performs an immediate sweep and retries every two seconds until
 an import for any supported backend (AAudio or OpenSL) is rebound. This covers
