@@ -8,6 +8,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SessionEffectStartupFenceTest {
+    @Test fun retriesMissingEndpointBeforeWritingState() = runBlocking {
+        var endpointReady = false
+        var endpointAttempts = 0
+        var writes = 0
+        var enabled = false
+        val fence = SessionEffectStartupFence(
+            ensureEndpoint = { endpointAttempts++; endpointReady },
+            canUseEndpoint = { endpointReady },
+            isEnabled = { enabled },
+            writeCompleteState = { writes++; true },
+            setEnabled = { enabled = it },
+        )
+
+        assertFalse(fence.prepare(DspDesiredState.current()) { true })
+        assertFalse(enabled)
+        assertFalse(fence.ready)
+        assertTrue(writes == 0)
+
+        endpointReady = true
+        assertTrue(fence.prepare(DspDesiredState.current()) { true })
+        assertTrue(enabled)
+        assertTrue(fence.ready)
+        assertTrue(endpointAttempts == 2)
+        assertTrue(writes == 1)
+    }
+
     @Test fun doesNotEnableBeforeCompleteStateHasBeenWritten() = runBlocking {
         var enabled = false
         val order = mutableListOf<String>()

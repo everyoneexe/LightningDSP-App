@@ -63,7 +63,8 @@ class LightningDspRemoteEngine(
         }
     }
 
-    var effect: AudioEffectHidden? = createEffect()
+    @Volatile var effect: AudioEffectHidden? = createEffect()
+    private val effectAttachmentLock = Any()
     @Volatile private var disposed = false
     private val supplementalState = SupplementalStateFence(
         canUseEndpoint = { supplemental && sessionId > 0 &&
@@ -77,6 +78,7 @@ class LightningDspRemoteEngine(
     @Volatile private var supplementalInvalidated = false
     @Volatile private var requestedEnabled = false
     private val sessionStartupFence = if (sessionId > 0 && !supplemental) SessionEffectStartupFence(
+        ensureEndpoint = ::ensureSessionEffectEndpoint,
         canUseEndpoint = { !disposed && canControlEndpoint() },
         isEnabled = { runCatching { effect?.enabled ?: false }.getOrDefault(false) },
         writeCompleteState = { syncCompleteState(it) },
@@ -139,6 +141,24 @@ class LightningDspRemoteEngine(
         } catch (e: Exception) {
             Timber.w(e, "AudioEffect attachment unavailable; keep global-control diagnostics alive")
             null
+        }
+    }
+
+    /** Retry only a failed/null attachment during the bounded startup attempts. */
+    private fun ensureSessionEffectEndpoint(): Boolean {
+        if (disposed) return false
+        if (effect != null) return true
+        return synchronized(effectAttachmentLock) {
+            if (disposed) return@synchronized false
+            effect?.let { return@synchronized true }
+            val attached = createEffect() ?: return@synchronized false
+            if (disposed) {
+                attached.release()
+                return@synchronized false
+            }
+            effect = attached
+            watchControl(attached)
+            true
         }
     }
 
@@ -263,9 +283,11 @@ class LightningDspRemoteEngine(
         DspDesiredState.replace {
             if (disposed) return@replace
             if (usesUnscopedNative) LightningDspControlClient.invalidateContext()
-            effect?.release()
-            effect = createEffect()
-            watchControl(effect)
+            synchronized(effectAttachmentLock) {
+                effect?.release()
+                effect = createEffect()
+                watchControl(effect)
+            }
         }
         context.sendLocalBroadcast(Intent(Constants.ACTION_PRESET_LOADED))
         if (sessionStartupFence != null) {
@@ -361,8 +383,10 @@ class LightningDspRemoteEngine(
             supplementalState.invalidate()
             context.unregisterLocalReceiver(broadcastReceiver)
             if (usesUnscopedNative) LightningDspControlClient.invalidateContext()
-            effect?.release()
-            effect = null
+            synchronized(effectAttachmentLock) {
+                effect?.release()
+                effect = null
+            }
             super.close()
         }
     }

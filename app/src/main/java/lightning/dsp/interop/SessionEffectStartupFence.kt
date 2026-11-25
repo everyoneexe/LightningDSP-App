@@ -2,6 +2,7 @@ package lightning.dsp.interop
 
 /** Keeps a newly attached session effect bypassed until its complete DSP state is written. */
 internal class SessionEffectStartupFence(
+    private val ensureEndpoint: () -> Boolean = { true },
     private val canUseEndpoint: () -> Boolean,
     private val isEnabled: () -> Boolean,
     private val writeCompleteState: suspend (Long) -> Boolean,
@@ -25,7 +26,11 @@ internal class SessionEffectStartupFence(
 
     /** Applies the latest session eligibility only after all DSP namespaces succeed. */
     suspend fun prepare(expectedGeneration: Long, shouldEnable: () -> Boolean): Boolean {
-        if (!canUseEndpoint() || isEnabled() || DspDesiredState.current() != expectedGeneration) return false
+        // AudioFlinger may not accept a newly discovered session immediately.
+        // Give the owner a bounded opportunity to recreate a missing endpoint
+        // before failing startup; an existing endpoint is never replaced here.
+        if (!ensureEndpoint() || !canUseEndpoint() || isEnabled() ||
+            DspDesiredState.current() != expectedGeneration) return false
         val prepared = writeCompleteState(expectedGeneration) && canUseEndpoint() &&
             DspDesiredState.current() == expectedGeneration
         if (!prepared) return false
