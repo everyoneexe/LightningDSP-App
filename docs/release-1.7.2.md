@@ -34,10 +34,10 @@ Root app **1.7.2/code 146**, package `com.lightning.dsp`, signed with the existi
 
 Work-profile routing depends on Android exposing the profile and an eligible package inventory through the supported root path. The SystemUI replacement requires its app scope and hook enabled in a compatible Vector/LSPosed setup; stock controls remain the fallback when the replacement is unavailable. Global Mode still cannot exclude one app from a shared output mix.
 
-### Known issues before stable
+### Corrections in progress before stable 6.7.2
 
-- Some Bluetooth headsets can still produce intermittent distortion with the SBC codec in Fusion Mode. LDAC has been stable in the reports so far; the cause and a reliable fix are still under investigation.
-- The hooked SystemUI volume panel remains unreliable on some Samsung One UI devices. It has been working on the Pixel 10 Pro XL used for project testing, but that does not establish Samsung or device-wide compatibility.
-- In temp-root environments, an audio APEX that becomes available after the module's late-load check may still be missed. This timing case needs validation before stable 6.7.2.
+- We are investigating intermittent Fusion distortion reported with SBC Bluetooth audio. LDAC has been stable in the reports so far; the cause is not confirmed and no fix is claimed in this beta.
+- We are continuing work on the hooked SystemUI volume panel for Samsung One UI, where it can remain unreliable. It has been stable in testing on the project's Pixel 10 Pro XL, but that does not establish Samsung or device-wide compatibility.
+- We are investigating late-mounted audio APEX availability in temp-root environments. The guarded Exynos late-load path in this beta does not yet establish that this separate timing case is fixed.
 
 Unit tests and both Xposed build variants are checked in CI. The modern API candidate still needs real-device testing; framework and firmware behavior can vary.
