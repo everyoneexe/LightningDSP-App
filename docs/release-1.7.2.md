@@ -1,4 +1,4 @@
-# LightningDSP app 1.7.2-beta-1
+# LightningDSP app 1.7.2-beta-2
 
 This pre-release brings the work-profile and volume-panel work forward, improves audio recovery, and includes an optional build for testing the modern libxposed API. The usual APK still uses the legacy Xposed entry point to preserve compatibility with existing setups.
 
@@ -30,7 +30,7 @@ This pre-release brings the work-profile and volume-panel work forward, improves
 
 ### Versions and compatibility
 
-Root app **1.7.2/code 146**, package `com.lightning.dsp`, signed with the existing owner certificate. The universal APK includes arm64-v8a, armeabi-v7a, x86 and x86_64 app libraries. This does not make the module's ARM64 audio driver universal.
+Root app **1.7.2/code 147**, package `com.lightning.dsp`, signed with the existing owner certificate. The universal APK includes arm64-v8a, armeabi-v7a, x86 and x86_64 app libraries. This does not make the module's ARM64 audio driver universal.
 
 Work-profile routing depends on Android exposing the profile and an eligible package inventory through the supported root path. The SystemUI replacement requires its app scope and hook enabled in a compatible Vector/LSPosed setup; stock controls remain the fallback when the replacement is unavailable. Global Mode still cannot exclude one app from a shared output mix.
 
