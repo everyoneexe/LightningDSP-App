@@ -1,6 +1,7 @@
 package lightning.dsp.volumemanager.surface;
 
 import android.app.KeyguardManager;
+import android.app.Application;
 import android.annotation.SuppressLint;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -88,7 +89,8 @@ public final class SystemUiVolumeSurfaceHost {
 
     /** Called only in the scoped SystemUI application process. Unsupported APIs retain stock UI. */
     public static void install(Context context) {
-        if (Build.VERSION.SDK_INT < 30 || !"com.android.systemui".equals(context.getPackageName())) return;
+        if (Build.VERSION.SDK_INT < 30 || !"com.android.systemui".equals(context.getPackageName()) ||
+                !"com.android.systemui".equals(Application.getProcessName())) return;
         new Handler(Looper.getMainLooper()).post(() -> {
             if (instance != null) return;
             try {

@@ -28,7 +28,10 @@ public final class SystemUiVolumePanelHook implements IXposedHookLoadPackage {
     private static final String READY_PROPERTY = "debug.lightningdsp.volume_panel_hook_pid";
     private static final long LEASE_TTL_MS = 6_000L;
     private static final long CONTROLLER_RETRY_MS = 500L;
-    private static final int CONTROLLER_ATTEMPTS = 4;
+    // SystemUI can be relaunched after boot or under memory pressure; Samsung and
+    // newer Android builds may publish its Application/controller later than 2 s.
+    // Keep retries bounded to 10 s per initialization stage, then fail open to stock.
+    private static final int CONTROLLER_ATTEMPTS = 20;
     private static final int FLAG_SHOW_UI = 1;
     private static boolean volumeHookInstalled;
 
@@ -56,12 +59,25 @@ public final class SystemUiVolumePanelHook implements IXposedHookLoadPackage {
     }
 
     @Override public void handleLoadPackage(XC_LoadPackage.LoadPackageParam info) {
-        if (!SYSTEM_UI.equals(info.packageName)) return;
+        // SystemUI also runs auxiliary processes (for example :screenshot).
+        // Only its main process owns the volume dialog and may host our window.
+        if (!SYSTEM_UI.equals(info.packageName) || !SYSTEM_UI.equals(info.processName)) return;
         if (Build.VERSION.SDK_INT < 30) return;
+        clearReadinessMarker();
         // Vector's legacy bridge can load this hook after SystemUI's Application.onCreate.
         // A hook placed on onCreate would then never run, leaving the stock dialog forever.
         Handler main = new Handler(Looper.getMainLooper());
         main.postDelayed(() -> initializeSystemUi(0), CONTROLLER_RETRY_MS);
+    }
+
+    /** Do not leave a dead SystemUI PID advertised while this process reinitializes. */
+    private static void clearReadinessMarker() {
+        try {
+            Class<?> properties = XposedHelpers.findClass("android.os.SystemProperties", null);
+            XposedHelpers.callStaticMethod(properties, "set", READY_PROPERTY, "0");
+        } catch (Throwable error) {
+            XposedBridge.log("LightningDSP SystemUI volume panel: could not clear stale readiness marker");
+        }
     }
 
     private static void initializeSystemUi(int attempt) {
