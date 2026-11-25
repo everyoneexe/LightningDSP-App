@@ -341,6 +341,15 @@ public final class AudioCompatibilityHook implements IXposedHookLoadPackage {
         return requested() || reuseRequested();
     }
 
+    /** The module is scoped to these platform packages for other hooks, never audio-app compatibility. */
+    private static boolean isPlatformHookTarget(XC_LoadPackage.LoadPackageParam info) {
+        String packageName = info.packageName;
+        String processName = info.processName;
+        return "android".equals(packageName) || "system".equals(packageName) ||
+                "com.android.systemui".equals(packageName) || "system_server".equals(processName) ||
+                (processName != null && processName.startsWith("com.android.systemui:"));
+    }
+
     private static void installLaunchHook() {
         if (!launchHookInstalled.compareAndSet(false, true)) return;
         try {
@@ -372,10 +381,9 @@ public final class AudioCompatibilityHook implements IXposedHookLoadPackage {
 
     @Override public void handleLoadPackage(XC_LoadPackage.LoadPackageParam info) {
         int appId = Process.myUid() % 100000;
-        if (appId < 10000 || appId >= 20000 || info.appInfo == null ||
+        if (isPlatformHookTarget(info) || appId < 10000 || appId >= 20000 || info.appInfo == null ||
                 (info.appInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0 ||
-                info.packageName == null || info.packageName.equals("android") ||
-                info.packageName.equals("system") || info.packageName.startsWith("com.lightning.dsp")) return;
+                info.packageName == null || info.packageName.startsWith("com.lightning.dsp")) return;
         boolean aaudioRequested = requested();
         boolean sessionReuseEnabled = reuseRequested();
         boolean sessionPreparationEnabled = sessionPreparationRequested();
