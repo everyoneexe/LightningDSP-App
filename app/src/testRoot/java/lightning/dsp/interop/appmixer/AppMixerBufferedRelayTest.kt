@@ -4,6 +4,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AppMixerBufferedRelayTest {
+    @Test fun relayStartsOnceBeforeReadingAndWritingPcm() {
+        val events = mutableListOf<String>()
+        val counts = AppMixerPcmRelay.runBuffered(ShortArray(4),
+            shouldContinue = { "write" !in events },
+            read = { events += "read"; 4 },
+            write = { _, _, count -> events += "write"; count },
+            idle = { fail("No idle expected") },
+            beforePump = { events += "start" })
+        assertEquals(listOf("start", "read", "write"), events)
+        assertEquals(AppMixerPcmRelay.Counts(4, 4), counts)
+    }
     @Test fun blockedWritesDoNotImmediatelyStopCaptureAndQueueIsBounded() {
         var reads = 0
         var idles = 0

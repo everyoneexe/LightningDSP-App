@@ -52,6 +52,18 @@
     </PreferenceCategory>
 
     <PreferenceCategory
+        android:key="@string/key_audioformat_fusion_options"
+        app:title="@string/audio_format_fusion_options_header"
+        app:iconSpaceReserved="false">
+        <lightning.dsp.preference.MaterialSwitchPreference
+            android:key="@string/key_audioformat_fusion_stability_mode"
+            android:defaultValue="@bool/default_audioformat_fusion_stability_mode"
+            android:title="@string/audio_format_fusion_stability_mode"
+            android:summary="@string/audio_format_fusion_stability_mode_summary"
+            app:iconSpaceReserved="false" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
         app:title="@string/audio_format_coverage_header"
         app:iconSpaceReserved="false">
         <lightning.dsp.preference.MaterialSwitchPreference

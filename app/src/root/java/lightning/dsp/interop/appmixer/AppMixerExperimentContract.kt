@@ -9,6 +9,7 @@ internal data class AppMixerExperimentConfig(
     val ownerUid: Int = -1,
     val includeSystemSounds: Boolean = false,
     val localDsp: Boolean = false,
+    val stabilityMode: Boolean = false,
     val ownerExternalFiles: String = "",
     val userIds: Set<Int> = setOf(userId),
 ) {
@@ -71,6 +72,7 @@ internal object AppMixerPcmRelay {
         maxWriteStallNanos: Long = 2_000_000_000L,
         onProgress: (Long, Counts, Long) -> Unit = { _, _, _ -> },
         progressIntervalNanos: Long = 5_000_000_000L,
+        beforePump: () -> Unit = {},
     ): Counts {
         require(buffer.isNotEmpty() && buffer.size <= 65536)
         require(maxWriteStallNanos > 0 && progressIntervalNanos > 0)
@@ -79,6 +81,9 @@ internal object AppMixerPcmRelay {
         var queued = 0
         var readSamples = 0L
         var writtenSamples = 0L
+        // Allocate the ring before the caller starts capture. Otherwise the
+        // first PCM can queue up while the relay is still being prepared.
+        beforePump()
         var lastReport = nowNanos()
         var lastRead = lastReport
         var lastWriteProgress = lastReport
@@ -192,8 +197,21 @@ internal object AppMixerLatencyPolicy {
     const val DEFAULT_FRAMES_PER_BURST = 240 // 5 ms at 48 kHz
     const val MIN_FRAMES_PER_BURST = 120
     const val MAX_FRAMES_PER_BURST = 960
-    const val TARGET_PLAYBACK_BUFFER_FRAMES = 960 // 20 ms at 48 kHz; platform may clamp upward
-    const val MAX_PLAYBACK_BUFFER_FRAMES = 3840 // 80 ms, unless the platform requires more
+    const val TARGET_PLAYBACK_BUFFER_FRAMES = 624 // 13 ms at 48 kHz; platform may clamp upward
+    const val STABILITY_MIN_PLAYBACK_BUFFER_FRAMES = 960 // 20 ms at 48 kHz
+    const val PLAYBACK_BUFFER_RECOVERY_STEP_FRAMES = 96 // 2 ms at 48 kHz
+    const val STABILITY_PLAYBACK_BUFFER_RECOVERY_STEP_FRAMES = 960 // 20 ms at 48 kHz
+    const val PLAYBACK_BUFFER_DOWNSHIFT_STEP_FRAMES = 240 // 5 ms at 48 kHz
+    const val PLAYBACK_BUFFER_STABLE_NANOS = 30_000_000_000L
+    const val MAX_EFFECTIVE_PLAYBACK_BUFFER_FRAMES = 1440 // 30 ms target ceiling for normal Fusion
+    const val MAX_STABILITY_PLAYBACK_BUFFER_FRAMES = 3840 // 80 ms target ceiling for Stability Mode
+    const val PLAYBACK_BUFFER_CAPACITY_FRAMES = 3840 // 80 ms reserved capacity, not queued audio
+
+    fun maxEffectivePlaybackBufferFrames(stabilityMode: Boolean): Int =
+        if (stabilityMode) MAX_STABILITY_PLAYBACK_BUFFER_FRAMES else MAX_EFFECTIVE_PLAYBACK_BUFFER_FRAMES
+
+    fun playbackBufferRecoveryStepFrames(stabilityMode: Boolean): Int =
+        if (stabilityMode) STABILITY_PLAYBACK_BUFFER_RECOVERY_STEP_FRAMES else PLAYBACK_BUFFER_RECOVERY_STEP_FRAMES
 
     fun playbackBufferFrames(capacityFrames: Int, minimumFrames: Int = 1): Int {
         require(capacityFrames > 0 && minimumFrames > 0)
@@ -210,7 +228,7 @@ internal object AppMixerLatencyPolicy {
     /** Reserve bounded headroom, not a growing queue. The effective size starts smaller. */
     fun playbackCapacityBytes(minimumBytes: Int, framesPerBurst: Int): Int =
         maxOf(trackBufferBytes(minimumBytes, framesPerBurst),
-            MAX_PLAYBACK_BUFFER_FRAMES * CHANNELS * BYTES_PER_SAMPLE)
+            PLAYBACK_BUFFER_CAPACITY_FRAMES * CHANNELS * BYTES_PER_SAMPLE)
 
     fun framesPerBurst(outputFramesPerBuffer: String?): Int =
         outputFramesPerBuffer?.toIntOrNull()?.coerceIn(MIN_FRAMES_PER_BURST, MAX_FRAMES_PER_BURST)
@@ -243,14 +261,15 @@ internal object AppMixerControlProtocol {
 }
 
 /** Follow shared-memory underrun counters and reapply the bound after a route restores the track. */
-internal class AppMixerPlaybackBufferTuner(private val minimumFrames: Int) {
+internal class AppMixerPlaybackBufferTuner(
+    private val minimumFrames: Int,
+    private val stabilityMode: Boolean = false,
+) {
     private var previousUnderruns: Int? = null
-    private var lastUnderrunNanos: Long? = null
-    private var probingSmallerBuffer = false
-    private var smallerBufferFailed = false
+    private var lastAdjustmentNanos: Long? = null
     // getMinBufferSize sizes construction capacity, not a mandatory effective floor.
-    // Let AudioTrack clamp the request; retain the recommendation for underrun recovery.
-    private var target = AppMixerLatencyPolicy.TARGET_PLAYBACK_BUFFER_FRAMES
+    // Let AudioTrack clamp the request; add headroom gradually after underruns.
+    private var target = initialTarget()
 
     init { require(minimumFrames > 0) }
 
@@ -258,23 +277,40 @@ internal class AppMixerPlaybackBufferTuner(private val minimumFrames: Int) {
         require(capacity > 0 && underruns >= 0)
         val previous = previousUnderruns
         if (previous != null && underruns > previous) {
-            if (probingSmallerBuffer) smallerBufferFailed = true
-            probingSmallerBuffer = false
-            target = maxOf(minimumFrames, AppMixerLatencyPolicy.MAX_PLAYBACK_BUFFER_FRAMES)
-            lastUnderrunNanos = nowNanos
-        } else if (!smallerBufferFailed &&
-            lastUnderrunNanos?.let { nowNanos - it >= 30_000_000_000L } == true) {
-            // Probe the low-latency queue once after stability. A renewed underrun
-            // means this relay needs headroom; do not oscillate every 30 seconds.
-            target = maxOf(minimumFrames, AppMixerLatencyPolicy.TARGET_PLAYBACK_BUFFER_FRAMES)
-            probingSmallerBuffer = true
-            lastUnderrunNanos = null
+            // Add headroom in small steps. The separately reserved track capacity is
+            // not itself queued audio. A platform-required minimum may exceed
+            // this target and is reported by the effective size returned from
+            // AudioTrack.setBufferSizeInFrames().
+            val ceiling = maxOf(minimumFrames,
+                AppMixerLatencyPolicy.maxEffectivePlaybackBufferFrames(stabilityMode)).toLong()
+            val base = maxOf(target, recoveryTarget()).toLong()
+            // Apply one headroom step per observed poll, rather than multiplying
+            // by a large cumulative-counter jump after route changes.
+            val increase = AppMixerLatencyPolicy.playbackBufferRecoveryStepFrames(stabilityMode).toLong()
+            target = minOf(ceiling, base + increase).toInt()
+            lastAdjustmentNanos = nowNanos
+        } else if (lastAdjustmentNanos?.let { nowNanos - it >= AppMixerLatencyPolicy.PLAYBACK_BUFFER_STABLE_NANOS } == true) {
+            // After 30 seconds without a new underrun, release one step of
+            // headroom. If that probe fails, the next underrun raises it again.
+            target = maxOf(
+                recoveryTarget(),
+                target - AppMixerLatencyPolicy.PLAYBACK_BUFFER_DOWNSHIFT_STEP_FRAMES,
+            )
+            lastAdjustmentNanos = nowNanos
         }
         // A counter reset can occur when AudioTrack restores itself; keep the safe
         // bounded margin but do not mistake the reset for thousands of new xruns.
         previousUnderruns = underruns
         return minOf(capacity, target)
     }
+
+    private fun initialTarget() = if (stabilityMode) {
+        AppMixerLatencyPolicy.STABILITY_MIN_PLAYBACK_BUFFER_FRAMES
+    } else {
+        AppMixerLatencyPolicy.TARGET_PLAYBACK_BUFFER_FRAMES
+    }
+
+    private fun recoveryTarget() = maxOf(minimumFrames, initialTarget())
 }
 
 internal object AppMixerRelayScheduling {

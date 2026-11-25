@@ -7,6 +7,10 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 
+private val fusionTimingDiagnostic = Regex(
+    """Fusion Mode timing: captureEstimateUs=(?:[0-9]{1,10}|unavailable) maxAssemblyUs=[0-9]{1,16} maxDspUs=[0-9]{1,16} dspBlocks=[0-9]{1,10} queuedAudioUs=[0-9]{1,16}"""
+)
+
 /** Owns one helper and its effect. Call only on a background thread. */
 internal class AppMixerSupervisor(
     private val launch: () -> Process,
@@ -70,7 +74,11 @@ internal class AppMixerSupervisor(
             Thread {
                 AppMixerProcessStreamDrainer.drain(process.errorStream) { diagnostic ->
                     // Only bounded numeric relay diagnostics, never arbitrary helper stderr.
-                    if (diagnostic.startsWith("Fusion Mode relay:") ||
+                    if (fusionTimingDiagnostic.matches(diagnostic)) {
+                        // A missing timestamp is informational, not a warning.
+                        if (lightning.dsp.utils.logging.DiagnosticMode.isEnabled())
+                            android.util.Log.i("LightningDSP_FusionMode", diagnostic)
+                    } else if (diagnostic.startsWith("Fusion Mode relay:") ||
                         diagnostic.startsWith("Fusion Mode playback buffer:")) {
                         if (diagnostic.contains("failed") || diagnostic.contains("unavailable"))
                             android.util.Log.w("LightningDSP_FusionMode", diagnostic)

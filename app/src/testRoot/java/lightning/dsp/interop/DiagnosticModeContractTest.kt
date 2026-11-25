@@ -61,13 +61,22 @@ class DiagnosticModeContractTest {
 
     @Test fun relayProtocolAndPlaybackTuningRemainIndependentFromOptionalLogs() {
         val relay = read("src/root/java/lightning/dsp/interop/appmixer/AppMixerRoutingExperiment.kt")
-        assertTrue(relay.contains("DiagnosticMode.isEnabled() && now - lastDiagnostic"))
-        assertTrue(relay.contains("runCatching { tunePlaybackBuffer() }"))
+        val progress = relay.substringAfter("onProgress = { now, progress, readGap ->")
+        val diagnosticGate = "if (diagnosticEnabled && now - lastDiagnostic >= 5_000_000_000L)"
+        assertTrue(progress.contains(diagnosticGate))
+        assertTrue(progress.substringBefore(diagnosticGate).contains("runCatching { tunePlaybackBuffer() }"))
+        assertTrue(progress.substringBefore(diagnosticGate).contains("diagnosticEnabled = enabledNow"))
+        assertTrue(progress.substringAfter(diagnosticGate).contains("source.getTimestamp("))
         for (token in listOf("APP_MIXER:SESSION", "APP_MIXER:ROUTING", "APP_MIXER:RUNNING", "APP_MIXER:RELEASED")) {
             assertTrue(relay.contains(token))
         }
         val supervisor = read("src/root/java/lightning/dsp/interop/appmixer/AppMixerSupervisor.kt")
         assertTrue(supervisor.contains("DiagnosticMode.isEnabled()"))
+        val timingBranch = supervisor.substringAfter("if (fusionTimingDiagnostic.matches(diagnostic))")
+            .substringBefore("else if (diagnostic.startsWith")
+        assertTrue(supervisor.contains("if (fusionTimingDiagnostic.matches(diagnostic))"))
+        assertTrue(timingBranch.contains("DiagnosticMode.isEnabled()"))
+        assertFalse(timingBranch.contains("Log.w("))
         assertTrue(supervisor.contains("routeMayBeRegistered.set(true)"))
     }
 }

@@ -15,8 +15,8 @@ class AppMixerExperimentContractTest {
         assertEquals(960, AppMixerLatencyPolicy.stereoPcmBytes(240))
         assertEquals(1920, AppMixerLatencyPolicy.trackBufferBytes(1280, 240))
         assertEquals(8192, AppMixerLatencyPolicy.trackBufferBytes(8192, 240))
-        assertEquals(960, AppMixerLatencyPolicy.playbackBufferFrames(2886))
-        assertEquals(960, AppMixerLatencyPolicy.playbackBufferFrames(960))
+        assertEquals(624, AppMixerLatencyPolicy.playbackBufferFrames(2886))
+        assertEquals(624, AppMixerLatencyPolicy.playbackBufferFrames(960))
         assertThrows(IllegalArgumentException::class.java) { AppMixerLatencyPolicy.playbackBufferFrames(0) }
     }
 
@@ -24,63 +24,77 @@ class AppMixerExperimentContractTest {
         assertEquals(3840, AppMixerLatencyPolicy.playbackBufferFrames(5000, 3840))
         assertEquals(15360, AppMixerLatencyPolicy.playbackCapacityBytes(1920, 240))
         assertEquals(20000, AppMixerLatencyPolicy.playbackCapacityBytes(20000, 240))
-        val tuner = AppMixerPlaybackBufferTuner(1920)
-        assertEquals(960, tuner.targetFrames(3840, 0))
-        assertEquals(960, tuner.targetFrames(3840, 0))
-        assertEquals(3840, tuner.targetFrames(3840, 1))
+        val tuner = AppMixerPlaybackBufferTuner(624)
+        assertEquals(624, tuner.targetFrames(3840, 0, 0))
+        assertEquals(624, tuner.targetFrames(3840, 0, 1))
+        assertEquals(720, tuner.targetFrames(3840, 1, 2))
         // Bluetooth restoration can replace the native track with a huge queue.
-        assertEquals(3840, tuner.targetFrames(16354, 0))
-        assertEquals(3840, tuner.targetFrames(16354, 500))
-        assertEquals(960, tuner.targetFrames(960, 500))
-        assertEquals(960, AppMixerPlaybackBufferTuner(5000).targetFrames(16354, 0))
+        assertEquals(720, tuner.targetFrames(16354, 0, 3))
+        assertEquals(816, tuner.targetFrames(16354, 500, 4))
+        assertEquals(816, tuner.targetFrames(960, 500, 5))
+        assertEquals(624, AppMixerPlaybackBufferTuner(5000).targetFrames(16354, 0))
         val largeRecommendation = AppMixerPlaybackBufferTuner(5000)
-        assertEquals(960, largeRecommendation.targetFrames(16354, 0))
+        assertEquals(624, largeRecommendation.targetFrames(16354, 0))
         assertEquals(5000, largeRecommendation.targetFrames(16354, 1))
     }
 
     @Test fun localDspNeverTurnsBluetoothConstructionCapacityIntoAnEffectiveFloor() {
         val floor = AppMixerLatencyPolicy.recoveryFloorFrames(16354, localDsp = true)
-        assertEquals(960, floor)
+        assertEquals(624, floor)
         assertEquals(16354, AppMixerLatencyPolicy.recoveryFloorFrames(16354, localDsp = false))
         val tuner = AppMixerPlaybackBufferTuner(floor)
-        assertEquals(960, tuner.targetFrames(16354, 0, 0))
-        assertEquals(3840, tuner.targetFrames(16354, 1, 1))
-        assertEquals(960, tuner.targetFrames(16354, 1, 30_000_000_001))
+        assertEquals(624, tuner.targetFrames(16354, 0, 0))
+        assertEquals(720, tuner.targetFrames(16354, 1, 1))
+        assertEquals(624, tuner.targetFrames(16354, 1, 30_000_000_001))
         // Counter reset and capacity growth during device restoration must not
         // resurrect the obsolete Bluetooth recommendation.
-        assertEquals(960, tuner.targetFrames(32768, 0, 31_000_000_000))
-        assertEquals(3840, tuner.targetFrames(32768, 1, 32_000_000_000))
-        assertEquals(3840, tuner.targetFrames(32768, 1, 62_000_000_000))
+        assertEquals(624, tuner.targetFrames(32768, 0, 31_000_000_000))
+        assertEquals(720, tuner.targetFrames(32768, 1, 32_000_000_000))
+        assertEquals(624, tuner.targetFrames(32768, 1, 62_000_000_000))
     }
 
-    @Test fun emergencyHeadroomIsReleasedOnlyAfterSustainedStability() {
-        val tuner = AppMixerPlaybackBufferTuner(2886)
-        assertEquals(960, tuner.targetFrames(3840, 0, 0))
-        assertEquals(3840, tuner.targetFrames(3840, 1, 1))
-        assertEquals(3840, tuner.targetFrames(3840, 1, 29_000_000_000))
-        assertEquals(3840, tuner.targetFrames(3840, 2, 29_000_000_001))
-        assertEquals(3840, tuner.targetFrames(3840, 2, 58_000_000_000))
-        assertEquals(2886, tuner.targetFrames(3840, 2, 59_000_000_001))
-        assertEquals(2886, tuner.targetFrames(3840, 2, 100_000_000_000))
-        // A later real underrun restores headroom immediately.
-        assertEquals(3840, tuner.targetFrames(3840, 3, 100_000_000_001))
-        assertEquals(3840, tuner.targetFrames(3840, 3, 140_000_000_000))
+    @Test fun normalModeStartsAt13MsAndAdds2MsPerUnderrunUpTo30Ms() {
+        val tuner = AppMixerPlaybackBufferTuner(624)
+        assertEquals(624, tuner.targetFrames(3840, 0, 0))
+        assertEquals(720, tuner.targetFrames(3840, 1, 1))
+        assertEquals(816, tuner.targetFrames(3840, 2, 2))
+        var underruns = 2
+        var target = 816
+        repeat(20) {
+            underruns++
+            target = tuner.targetFrames(3840, underruns, 3L + it)
+        }
+        assertEquals(1440, target)
+        assertEquals(1440, tuner.targetFrames(3840, underruns + 1, 30_000_000_000L))
     }
 
-    @Test fun failedDownshiftProbeKeepsBoundedHeadroomForThisRelay() {
-        val tuner = AppMixerPlaybackBufferTuner(960)
-        assertEquals(960, tuner.targetFrames(3840, 126, 0))
-        assertEquals(3840, tuner.targetFrames(3840, 170, 1_000_000_000))
-        assertEquals(960, tuner.targetFrames(3840, 170, 32_000_000_000))
-        assertEquals(3840, tuner.targetFrames(3840, 214, 33_000_000_000))
-        assertEquals(3840, tuner.targetFrames(3840, 214, 70_000_000_000))
-        assertEquals(3840, tuner.targetFrames(3840, 214, 160_000_000_000))
+    @Test fun stabilityModeStartsAt20MsAndGrowsBy20MsUpTo80Ms() {
+        val tuner = AppMixerPlaybackBufferTuner(480, stabilityMode = true)
+        assertEquals(960, tuner.targetFrames(3840, 100, 0))
+        assertEquals(1920, tuner.targetFrames(3840, 101, 1))
+        assertEquals(2880, tuner.targetFrames(3840, 102, 2))
+        assertEquals(3840, tuner.targetFrames(3840, 103, 3))
+        assertEquals(3840, tuner.targetFrames(3840, 104, 4))
+    }
+
+    @Test fun bothModesReduceBy5MsAfter30SecondsWithoutNewUnderruns() {
+        val normal = AppMixerPlaybackBufferTuner(624)
+        assertEquals(624, normal.targetFrames(3840, 0, 0))
+        assertEquals(720, normal.targetFrames(3840, 1, 1))
+        assertEquals(624, normal.targetFrames(3840, 1, 30_000_000_001))
+        val stable = AppMixerPlaybackBufferTuner(624, stabilityMode = true)
+        assertEquals(960, stable.targetFrames(3840, 1, 0))
+        assertEquals(1920, stable.targetFrames(3840, 2, 1))
+        assertEquals(1680, stable.targetFrames(3840, 2, 30_000_000_001))
+        assertEquals(1440, stable.targetFrames(3840, 2, 60_000_000_002))
+        repeat(3) { stable.targetFrames(3840, 2, 90_000_000_003L + it * 30_000_000_000L) }
+        assertEquals(960, stable.targetFrames(3840, 2, 180_000_000_003))
     }
 
     @Test fun healthyRelayKeepsLowLatencyBufferWithoutAnyIncrease() {
-        val tuner = AppMixerPlaybackBufferTuner(960)
-        assertEquals(960, tuner.targetFrames(3840, 0, 0))
-        assertEquals(960, tuner.targetFrames(3840, 0, 120_000_000_000))
+        val tuner = AppMixerPlaybackBufferTuner(624)
+        assertEquals(624, tuner.targetFrames(3840, 0, 0))
+        assertEquals(624, tuner.targetFrames(3840, 0, 120_000_000_000))
     }
 
     @Test fun audioSchedulingFailureDoesNotPreventRelayFallback() {

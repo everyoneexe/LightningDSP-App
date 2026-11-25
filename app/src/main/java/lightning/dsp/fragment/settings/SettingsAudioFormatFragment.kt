@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.preference.ListPreference
 import androidx.preference.Preference
+import androidx.preference.PreferenceCategory
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -47,6 +48,12 @@ class SettingsAudioFormatFragment : SettingsBaseFragment() {
     }
     private val includeSystemSounds by lazy {
         findPreference<MaterialSwitchPreference>(getString(R.string.key_audioformat_include_system_sounds))
+    }
+    private val fusionOptions by lazy {
+        findPreference<PreferenceCategory>(getString(R.string.key_audioformat_fusion_options))
+    }
+    private val fusionStabilityMode by lazy {
+        findPreference<MaterialSwitchPreference>(getString(R.string.key_audioformat_fusion_stability_mode))
     }
     private val allMixers by lazy { findPreference<MaterialSwitchPreference>(getString(R.string.key_audioformat_all_mixers)) }
     private val enhancedMode by lazy { findPreference<MaterialSwitchPreference>(getString(R.string.key_audioformat_enhanced_processing)) }
@@ -275,6 +282,9 @@ class SettingsAudioFormatFragment : SettingsBaseFragment() {
         globalMode?.isChecked = globalEnabled && !mixerEnabled
         sessionMode?.isChecked = !globalEnabled && !mixerEnabled
         appMixerMode?.isChecked = mixerEnabled
+        fusionOptions?.isVisible = isRoot() && mixerEnabled
+        fusionStabilityMode?.isVisible = isRoot() && mixerEnabled
+        fusionStabilityMode?.isEnabled = isRoot() && mixerEnabled
         includeSystemSounds?.apply {
             isVisible = isRoot() && (!globalEnabled || mixerEnabled)
             isEnabled = isRoot() && (!globalEnabled || mixerEnabled)

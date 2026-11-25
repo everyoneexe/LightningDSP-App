@@ -97,6 +97,11 @@ class AppMixerIntegrationContractTest {
         assertTrue(track.contains("if (config.localDsp) AudioTrack.PERFORMANCE_MODE_LOW_LATENCY"))
         assertTrue(helper.indexOf("AppMixerLocalDsp.open(") < helper.indexOf("player = AudioTrack.Builder()"))
         assertTrue(helper.contains("AppMixerFixedDspCapture(relayFrames * AppMixerLatencyPolicy.CHANNELS, dsp::process)"))
+        val pumpStartup = helper.substringAfter("beforePump = {").substringBefore("progressIntervalNanos")
+        assertTrue(pumpStartup.contains("source.startRecording()"))
+        assertTrue(pumpStartup.indexOf("if (!config.localDsp) startCapture()") in 0 until pumpStartup.indexOf("target.play()"))
+        assertTrue(pumpStartup.indexOf("target.play()") in 0 until pumpStartup.indexOf("if (config.localDsp) startCapture()"))
+        assertTrue(pumpStartup.indexOf("if (config.localDsp) startCapture()") in 0 until pumpStartup.indexOf("APP_MIXER:RUNNING"))
         val preparer = read("root/java/lightning/dsp/interop/appmixer/AppMixerEffectPreparer.kt")
         val localBranch = preparer.substringAfter("if (localDsp) {").substringBefore("return prepareFrameworkEffect")
         assertFalse(localBranch.contains("LightningDspRemoteEngine"))
@@ -106,5 +111,22 @@ class AppMixerIntegrationContractTest {
         assertTrue(local.contains("synchronizeRelayState(force = false)"))
         assertTrue(local.contains("worker.awaitTermination(5, TimeUnit.SECONDS)"))
         assertTrue(local.contains("owner.applicationInfo.uid == ownerUid"))
+    }
+
+    @Test fun fusionStabilityIsOptInFusionOnlyAndRestartsWithItsBufferPolicy() {
+        val settings = read("main/java/lightning/dsp/fragment/settings/SettingsAudioFormatFragment.kt")
+        val preferences = read("main/res/xml/app_audio_format_preferences.xml")
+        val defaults = read("main/res/values/defaults.xml")
+        val controller = read("root/java/lightning/dsp/interop/appmixer/AppMixerModeController.kt")
+        val launcher = read("root/java/lightning/dsp/interop/appmixer/AppMixerProcessLauncher.kt")
+        val helper = read("root/java/lightning/dsp/interop/appmixer/AppMixerRoutingExperiment.kt")
+        assertTrue(settings.contains("fusionOptions?.isVisible = isRoot() && mixerEnabled"))
+        assertTrue(preferences.contains("@string/key_audioformat_fusion_stability_mode"))
+        assertTrue(defaults.contains("default_audioformat_fusion_stability_mode"))
+        assertTrue(defaults.contains("default_audioformat_fusion_stability_mode\" translatable=\"false\">false"))
+        assertTrue(controller.contains("stabilityModeKey -> runCatching { executor.execute { if (requested) reconcile(renew = true) } }"))
+        assertTrue(launcher.contains("--stability-mode="))
+        assertTrue(helper.contains("stabilityMode = args[7].endsWith(\"=1\")"))
+        assertTrue(helper.contains("AppMixerPlaybackBufferTuner(recoveryFloor, config.stabilityMode)"))
     }
 }

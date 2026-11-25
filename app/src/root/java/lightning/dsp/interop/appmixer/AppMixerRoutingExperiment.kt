@@ -5,6 +5,7 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
+import android.media.AudioTimestamp
 import android.media.AudioTrack
 import android.media.audiofx.AudioEffect
 import android.os.Process
@@ -58,7 +59,7 @@ object AppMixerRoutingExperiment {
             println("APP_MIXER:FILES_OK (read-only; no DSP instance or route created)")
             return
         }
-        val supervised = args.size == 9 && args[7] == "--local-dsp" && args[8].startsWith("--owner-external-b64=") && args[0] == "--supervised" && args[1].startsWith("--exclude-uids=") && args[2].startsWith("--user=") && args[3].startsWith("--owner=") && args[4].startsWith("--owner-pid=") && args[5].startsWith("--owner-start=") && args[6].matches(Regex("--include-system-sounds=[01]"))
+        val supervised = args.size == 10 && args[7].matches(Regex("--stability-mode=[01]")) && args[8] == "--local-dsp" && args[9].startsWith("--owner-external-b64=") && args[0] == "--supervised" && args[1].startsWith("--exclude-uids=") && args[2].startsWith("--user=") && args[3].startsWith("--owner=") && args[4].startsWith("--owner-pid=") && args[5].startsWith("--owner-start=") && args[6].matches(Regex("--include-system-sounds=[01]"))
         val config = if (supervised) AppMixerExperimentConfig(
             AppMixerExperimentConfig.parseExcludedUids(args[1], args[6].endsWith("=1"),
                 AppMixerExperimentConfig.parseUserIds(args[2].removePrefix("--user=")).size), 90, excludeUids = true,
@@ -66,7 +67,8 @@ object AppMixerRoutingExperiment {
             userIds = AppMixerExperimentConfig.parseUserIds(args[2].removePrefix("--user=")),
             ownerUid = args[3].removePrefix("--owner=").toInt(),
             includeSystemSounds = args[6].endsWith("=1"), localDsp = true,
-            ownerExternalFiles = String(Base64.decode(args[8].removePrefix("--owner-external-b64="), Base64.URL_SAFE), Charsets.UTF_8))
+            stabilityMode = args[7].endsWith("=1"),
+            ownerExternalFiles = String(Base64.decode(args[9].removePrefix("--owner-external-b64="), Base64.URL_SAFE), Charsets.UTF_8))
         else AppMixerExperimentConfig.parse(args)
         if (supervised) require(config.ownerUid in config.uids && config.ownerUid / 100000 in config.userIds && config.ownerUid % 100000 in 10000..19999)
         check(Process.myUid() == 0) { "A separately authorized root app_process is required" }
@@ -212,7 +214,7 @@ object AppMixerRoutingExperiment {
             check(player.state == AudioTrack.STATE_INITIALIZED && player.audioSessionId > 0)
             val minimumFrames = (minimumBytes + 3) / 4
             val recoveryFloor = AppMixerLatencyPolicy.recoveryFloorFrames(minimumFrames, config.localDsp)
-            val bufferTuner = AppMixerPlaybackBufferTuner(recoveryFloor)
+            val bufferTuner = AppMixerPlaybackBufferTuner(recoveryFloor, config.stabilityMode)
             var lastRequestedBuffer = -1
             var lastAcceptedBuffer = -1
             var lastBufferCapacity = -1
@@ -231,7 +233,7 @@ object AppMixerRoutingExperiment {
                         lastAcceptedBuffer = actual
                         lastBufferCapacity = capacity
                     }
-                    if (lightning.dsp.utils.logging.DiagnosticMode.isEnabled()) System.err.println("Fusion Mode playback buffer: constructionMinimum=$minimumFrames recoveryFloor=$recoveryFloor requested=$target actual=$actual capacity=${player.bufferCapacityInFrames}")
+                    if (lightning.dsp.utils.logging.DiagnosticMode.isEnabled()) System.err.println("Fusion Mode playback buffer: mode=${if (config.stabilityMode) "stability" else "normal"} constructionMinimum=$minimumFrames recoveryFloor=$recoveryFloor requested=$target actual=$actual capacity=${player.bufferCapacityInFrames}")
                 }
             }
             // Capacity remains conservatively sized. The effective queue is tuned separately;
@@ -250,21 +252,7 @@ object AppMixerRoutingExperiment {
             check(result == 0 /* AudioManager.SUCCESS, hidden in SDK stubs */) { "AudioPolicy registration denied: $result" }
             recorder = createSink.invoke(policy, mix) as AudioRecord
             check(recorder.state == AudioRecord.STATE_INITIALIZED) { "Remote submix recorder unavailable" }
-            recorder.startRecording()
-            check(recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING)
-            effect?.let { check(it.setEnabled(true) == AudioEffect.SUCCESS && it.enabled && it.hasControl()) }
-            player.play()
-            if (config.excludeUids) updater.set { excluded, includeSystemSounds, users ->
-                val update = policyType.getMethod("updateMixingRules", List::class.java)
-                val updates = listOf(android.util.Pair(mix, buildRule(excluded, includeSystemSounds, users)))
-                (update.invoke(policy, updates) as Int) == 0
-            }
-            println("APP_MIXER:RUNNING session=${player.audioSessionId} uidCount=${config.uids.size} effect=${if (config.localDsp) "local" else if (prepareExternalEffect == null) "diagnostic" else "external"}; coverage NOT verified")
-            System.out.flush()
-            // Supervised lifetime is controlled by the owner's pipe; manual tests
-            // remain time-limited. Rebuilding the mix periodically interrupts all tracks.
-            val deadline = if (prepareExternalEffect == null)
-                SystemClock.elapsedRealtime() + config.seconds * 1000L else Long.MAX_VALUE
+            var deadline = Long.MAX_VALUE
             val source = recorder
             val target = player
             if (!AppMixerRelayScheduling.requestAudioPriority {
@@ -275,25 +263,67 @@ object AppMixerRoutingExperiment {
             val fixedDspCapture = localDsp?.let { dsp ->
                 AppMixerFixedDspCapture(relayFrames * AppMixerLatencyPolicy.CHANNELS, dsp::process)
             }
+            var diagnosticEnabled = lightning.dsp.utils.logging.DiagnosticMode.isEnabled()
+            val timing = AppMixerDspTiming()
+            val captureTimestamp = AudioTimestamp()
             if (lightning.dsp.utils.logging.DiagnosticMode.isEnabled()) System.err.println("Fusion Mode relay: backend=${if (config.localDsp) "local-dsp" else "framework"} performanceMode=${target.performanceMode} sampleRate=${target.sampleRate}")
             val counts = AppMixerPcmRelay.runBuffered(ShortArray(relayFrames * AppMixerLatencyPolicy.CHANNELS),
                 shouldContinue = { !stop.get() && SystemClock.elapsedRealtime() < deadline },
                 read = { input ->
                     if (fixedDspCapture == null) source.read(input, 0, input.size, AudioRecord.READ_NON_BLOCKING)
-                    else fixedDspCapture.read(input) { capture, offset, count ->
+                    else fixedDspCapture.read(input, if (diagnosticEnabled) timing else null) { capture, offset, count ->
                         source.read(capture, offset, count, AudioRecord.READ_NON_BLOCKING)
                     }
                 },
                 write = { block, offset, count -> target.write(block, offset, count, AudioTrack.WRITE_NON_BLOCKING) },
                 idle = { Thread.sleep(2) },
+                beforePump = {
+                    check(!stop.get()) { "Owner pipe closed before relay startup" }
+                    fun startCapture() {
+                        source.startRecording()
+                        check(source.recordingState == AudioRecord.RECORDSTATE_RECORDING)
+                    }
+                    // Keep the legacy ordering for a framework insert. Local DSP
+                    // can start the ready return track before starting capture.
+                    if (!config.localDsp) startCapture()
+                    effect?.let { check(it.setEnabled(true) == AudioEffect.SUCCESS && it.enabled && it.hasControl()) }
+                    target.play()
+                    if (config.localDsp) startCapture()
+                    if (config.excludeUids) updater.set { excluded, includeSystemSounds, users ->
+                        val update = policyType.getMethod("updateMixingRules", List::class.java)
+                        val updates = listOf(android.util.Pair(mix, buildRule(excluded, includeSystemSounds, users)))
+                        (update.invoke(policy, updates) as Int) == 0
+                    }
+                    println("APP_MIXER:RUNNING session=${target.audioSessionId} uidCount=${config.uids.size} effect=${if (config.localDsp) "local" else if (prepareExternalEffect == null) "diagnostic" else "external"}; coverage NOT verified")
+                    System.out.flush()
+                    // The owner pipe bounds supervised runs; the manual probe has a deadline.
+                    deadline = if (prepareExternalEffect == null)
+                        SystemClock.elapsedRealtime() + config.seconds * 1000L else Long.MAX_VALUE
+                },
                 progressIntervalNanos = 1_000_000_000L,
                 onProgress = { now, progress, readGap ->
                     // Shared-memory AudioTrack metrics; no dumpsys/Binder topology
                     // query or parameter synchronization on the PCM hot path.
                     runCatching { tunePlaybackBuffer() }
+                    val enabledNow = lightning.dsp.utils.logging.DiagnosticMode.isEnabled()
+                    if (enabledNow != diagnosticEnabled) {
+                        timing.reset()
+                        diagnosticEnabled = enabledNow
+                        lastDiagnostic = now
+                    }
                     diagnosticReadGap = maxOf(diagnosticReadGap, readGap)
-                    if (lightning.dsp.utils.logging.DiagnosticMode.isEnabled() && now - lastDiagnostic >= 5_000_000_000L) {
+                    if (diagnosticEnabled && now - lastDiagnostic >= 5_000_000_000L) {
                         System.err.println("Fusion Mode relay: read=${progress.readSamples} written=${progress.writtenSamples} queuedFrames=${(progress.readSamples - progress.writtenSamples) / 2} maxReadGapMs=${diagnosticReadGap / 1_000_000} underruns=${target.underrunCount} buffer=${target.bufferSizeInFrames} capacity=${target.bufferCapacityInFrames}")
+                        // Poll once per diagnostic window, never inside capture or DSP.
+                        val consumedFrames = (progress.readSamples + (fixedDspCapture?.pendingSamples ?: 0)) / 2
+                        val captureAgeUs = runCatching {
+                            if (source.getTimestamp(captureTimestamp, AudioTimestamp.TIMEBASE_MONOTONIC) != AudioRecord.SUCCESS) null
+                            else AppMixerCaptureAge.estimateUs(consumedFrames, captureTimestamp.framePosition,
+                                captureTimestamp.nanoTime, System.nanoTime(), source.sampleRate)
+                        }.getOrNull()
+                        val queuedUs = (progress.readSamples - progress.writtenSamples) / 2 * 1_000_000L / target.sampleRate
+                        System.err.println("Fusion Mode timing: captureEstimateUs=${captureAgeUs ?: "unavailable"} maxAssemblyUs=${timing.maxAssemblyNanos / 1000} maxDspUs=${timing.maxDspNanos / 1000} dspBlocks=${timing.blocks} queuedAudioUs=$queuedUs")
+                        timing.resetWindow()
                         lastDiagnostic = now
                         diagnosticReadGap = 0L
                     }

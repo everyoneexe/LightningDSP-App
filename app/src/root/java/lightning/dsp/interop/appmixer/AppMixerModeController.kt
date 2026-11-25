@@ -28,6 +28,7 @@ internal class AppMixerModeController(
     private var running = false
     private var selected = emptySet<Int>()
     private var selectedSystemSounds = true
+    private var selectedStabilityMode = false
     private var selectedUsers = setOf(android.os.Process.myUid() / 100000)
     private var selectedWorkProfileIncluded = false
     private var disposed = false
@@ -36,7 +37,11 @@ internal class AppMixerModeController(
     private fun status(value: String) {
         if (value != lastStatus) { lastStatus = value; onStatus(value) }
     }
-    private val supervisor: AppMixerSupervisor = AppMixerSupervisor({ launcher.launch(selected, selectedSystemSounds, selectedUsers) }, acquireExclusive, effect::prepare,
+    private val stabilityModeKey = app.getString(R.string.key_audioformat_fusion_stability_mode)
+    private val supervisor: AppMixerSupervisor = AppMixerSupervisor({
+        launcher.launch(selected, selectedSystemSounds, selectedUsers,
+            appPrefs.getBoolean(stabilityModeKey, false))
+    }, acquireExclusive, effect::prepare,
         { modeAndPowerWanted() && inventory.readRoute(selectedSystemSounds)?.let {
             it.userIds == selectedUsers && it.excludedUids == selected &&
                 it.includesSystemSounds == selectedSystemSounds && it.workProfileIncluded == selectedWorkProfileIncluded
@@ -55,8 +60,11 @@ internal class AppMixerModeController(
         if (key == null || key.startsWith(SESSION_DSP_ENABLED_PREFIX) || key == "process_work_profile_audio") runCatching { executor.execute { reconcile(false) } }
     }
     private val appListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key == app.getString(R.string.key_audioformat_include_system_sounds))
-            runCatching { executor.execute { reconcile(false) } }
+        when (key) {
+            app.getString(R.string.key_audioformat_include_system_sounds) ->
+                runCatching { executor.execute { reconcile(false) } }
+            stabilityModeKey -> runCatching { executor.execute { if (requested) reconcile(renew = true) } }
+        }
     }
 
     init {
@@ -72,6 +80,7 @@ internal class AppMixerModeController(
     private fun reconcile(renew: Boolean) {
         if (disposed) return
         val requestedSystemSounds = appPrefs.getBoolean(app.getString(R.string.key_audioformat_include_system_sounds), true)
+        val requestedStabilityMode = appPrefs.getBoolean(stabilityModeKey, false)
         val route = if (requested) inventory.readRoute(requestedSystemSounds) else null
         val next = if (requested) route?.excludedUids else emptySet()
         val nextUsers = route?.userIds ?: setOf(android.os.Process.myUid() / 100000)
@@ -97,7 +106,8 @@ internal class AppMixerModeController(
             return
         }
         if (running && !renew && selected == next && selectedSystemSounds == nextSystemSounds &&
-            selectedUsers == nextUsers && selectedWorkProfileIncluded == nextWorkProfileIncluded) {
+            selectedUsers == nextUsers && selectedWorkProfileIncluded == nextWorkProfileIncluded &&
+            selectedStabilityMode == requestedStabilityMode) {
             status(activeStatus(systemSoundFallback, requested && panel.getBoolean("process_work_profile_audio", true) && !nextWorkProfileIncluded))
             return
         }
@@ -122,6 +132,7 @@ internal class AppMixerModeController(
         running = false
         selected = next
         selectedSystemSounds = nextSystemSounds
+        selectedStabilityMode = requestedStabilityMode
         selectedUsers = nextUsers
         selectedWorkProfileIncluded = nextWorkProfileIncluded
         if (requested) {
